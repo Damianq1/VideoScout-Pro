@@ -1,0 +1,12 @@
+{
+  "version": "2.0",
+  "search_config": {
+    "timeout_ms": 5000,
+    "max_results": 15,
+    "dorks": [
+      "intitle:index.of mp4",
+      "parent directory /videos/",
+      "inurl:view/index.shtml"
+    ]
+  }
+}

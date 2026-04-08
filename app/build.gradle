@@ -1,0 +1,46 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+
+}
+
+android {
+    kotlinOptions {
+    jvmTarget = '17' // Spróbujmy wrócić do 1.8 dla stabilności
+    freeCompilerArgs += ["-Xskip-metadata-version-check", "-Xallow-unstable-dependencies"]
+    namespace 'com.app'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.app"
+        minSdk 24
+        targetSdk 34
+        versionCode 1
+        versionName "2.0"
+
+        externalNativeBuild {
+            cmake {
+                cppFlags "-std=c++17"
+            }
+        }
+    }
+}
+    externalNativeBuild {
+        cmake {
+            path "../CMakeLists.txt"
+            // Ustawiamy wersję, którą masz w ACS
+            
+        }
+    }
+    
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    implementation 'androidx.core:core-ktx:1.12.0'
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'com.google.android.material:material:1.11.0'
+}
