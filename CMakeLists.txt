@@ -1,14 +1,13 @@
-set(CMAKE_C_COMPILER_WORKS 1)
-set(CMAKE_CXX_COMPILER_WORKS 1)
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.10.2)
 project("videoscout")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -nostdlib++")
-include_directories(/data/data/com.tom.rv2ide/files/usr/include/c++/v1)
-link_directories(/data/data/com.tom.rv2ide/files/usr/lib)
 
+# Dodajemy bibliotekę z Twojego pliku discovery.cpp
 add_library(videoscout SHARED
-    app/src/main/cpp/discovery.cpp
-)
+            app/src/main/cpp/discovery.cpp)
 
+# Szukamy standardowej biblioteki logowania Androida
 find_library(log-lib log)
-target_link_libraries(videoscout ${log-lib})
+
+# Łączymy wszystko. NIE dodajemy żadnych flag -nostdlib!
+target_link_libraries(videoscout
+                      ${log-lib})
