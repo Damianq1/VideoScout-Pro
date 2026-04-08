@@ -10,5 +10,5 @@ add_library(videoscout SHARED
     app/src/main/cpp/discovery.cpp
 )
 
-set(log-lib "${CMAKE_SOURCE_DIR}/app/src/main/jniLibs/arm64-v8a/liblog.so")
+find_library(log-lib log)
 target_link_libraries(videoscout ${log-lib})
