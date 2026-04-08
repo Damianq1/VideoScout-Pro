@@ -1,13 +1,9 @@
 plugins {
     id 'com.android.application'
     id 'org.jetbrains.kotlin.android'
-
 }
 
 android {
-    kotlinOptions {
-    jvmTarget = '17' // Spróbujmy wrócić do 1.8 dla stabilności
-    freeCompilerArgs += ["-Xskip-metadata-version-check", "-Xallow-unstable-dependencies"]
     namespace 'com.app'
     compileSdk 34
 
@@ -21,21 +17,24 @@ android {
         externalNativeBuild {
             cmake {
                 cppFlags "-std=c++17"
+                arguments "-DANDROID_STL=c++_shared"
             }
         }
     }
-}
+
     externalNativeBuild {
         cmake {
             path "../CMakeLists.txt"
-            // Ustawiamy wersję, którą masz w ACS
-            
         }
     }
-    
+
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = '17'
     }
 }
 
