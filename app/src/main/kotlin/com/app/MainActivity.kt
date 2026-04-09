@@ -10,80 +10,91 @@ import kotlin.concurrent.thread
 import android.net.Uri
 
 class MainActivity : AppCompatActivity() {
-    private lateinit var webView: WebView
+    private external fun getUpdateUrl(): String
+    private lateinit var agentView: WebView
+    private val activeSources = mutableListOf<String>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val root = RelativeLayout(this).apply { setBackgroundColor(Color.parseColor("#121212")) }
-        val mainLayout = LinearLayout(this).apply { 
+        val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(40, 40, 40, 40) 
+            setBackgroundColor(Color.parseColor("#050505"))
+            setPadding(30,30,30,30)
         }
 
-        val input = EditText(this).apply {
-            hint = "Wpisz tytuł (CDA / VIDER)"
-            setTextColor(Color.WHITE)
+        val input = EditText(this).apply { 
+            hint = "Tytuł filmu..."; setTextColor(Color.WHITE) 
         }
+        val btnSearch = Button(this).apply { text = "URUCHOM AGENTA (STEALTH)" }
+        val results = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val scroll = ScrollView(this).apply { addView(results) }
 
-        val btnSearch = Button(this).apply { text = "GŁĘBOKIE SKANOWANIE BAZ" }
-        val listContainer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        val scroll = ScrollView(this).apply { addView(listContainer) }
-
-        webView = WebView(this).apply {
-            layoutParams = RelativeLayout.LayoutParams(RelativeLayout.LayoutParams.MATCH_PARENT, 500).apply {
-                addRule(RelativeLayout.ALIGN_PARENT_BOTTOM)
-            }
+        // Nasz "Selenium" Agent
+        agentView = WebView(this).apply {
             settings.javaScriptEnabled = true
-            visibility = android.view.View.GONE
-        }
-
-        btnSearch.setOnClickListener {
-            val query = input.text.toString()
-            listContainer.removeAllViews()
+            settings.domStorageEnabled = true
+            settings.userAgentString = "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/111.0.0.0 Mobile Safari/537.36"
+            visibility = android.view.View.GONE // Niewidoczny dla użytkownika
             
-            thread {
-                val results = mutableListOf<Pair<String, String>>()
-                
-                // 1. Próba CDA (Bezpośrednio)
-                try {
-                    val cdaUrl = "https://www.cda.pl/info/${Uri.encode(query)}"
-                    val doc = Jsoup.connect(cdaUrl).userAgent("Mozilla/5.0").get()
-                    doc.select("a.hd-film-link").forEach { 
-                        results.add(it.text() to "https://www.cda.pl" + it.attr("href"))
-                    }
-                } catch(e: Exception) {}
-
-                // 2. Próba VIDER (Bezpośrednio)
-                try {
-                    val viderUrl = "https://vider.info/szukaj?q=${Uri.encode(query)}"
-                    val doc = Jsoup.connect(viderUrl).userAgent("Mozilla/5.0").get()
-                    doc.select(".video-title a").forEach {
-                        results.add(it.text() to it.attr("href"))
-                    }
-                } catch(e: Exception) {}
-
-                runOnUiThread {
-                    if (results.isEmpty()) {
-                        Toast.makeText(this@MainActivity, "Brak wyników. Przełączam na tryb ręczny...", Toast.LENGTH_SHORT).show()
-                        webView.visibility = android.view.View.VISIBLE
-                        webView.loadUrl("https://www.cda.pl/info/${Uri.encode(query)}")
-                    }
-                    results.forEach { (name, link) ->
-                        val btn = Button(this@MainActivity).apply {
-                            text = "FILM: $name"
-                            setOnClickListener { 
-                                webView.visibility = android.view.View.VISIBLE
-                                webView.loadUrl(link)
-                            }
-                        }
-                        listContainer.addView(btn)
+            webViewClient = object : WebViewClient() {
+                override fun onPageFinished(view: WebView?, url: String?) {
+                    // Po załadowaniu strony "wstrzykujemy" skrypt wyciągający linki
+                    view?.evaluateJavascript("(function() { return document.documentElement.outerHTML; })();") { html ->
+                        analyzeHtml(html, results)
                     }
                 }
             }
         }
 
-        mainLayout.addView(input); mainLayout.addView(btnSearch); mainLayout.addView(scroll)
-        root.addView(mainLayout); root.addView(webView)
+        // Auto-aktualizacja źródeł przy starcie
+        updateSources()
+
+        btnSearch.setOnClickListener {
+            results.removeAllViews()
+            val movie = input.text.toString()
+            activeSources.forEach { domain ->
+                val searchUrl = "https://$domain/szukaj/${Uri.encode(movie)}"
+                agentView.loadUrl(searchUrl)
+            }
+        }
+
+        root.addView(input); root.addView(btnSearch); root.addView(scroll); root.addView(agentView)
         setContentView(root)
     }
+
+    private fun updateSources() {
+        thread {
+            try {
+                // Symulacja pobierania nowej listy źródeł
+                val freshList = Jsoup.connect("https://pastebin.com/raw/TwojaLista").get().text()
+                activeSources.clear()
+                activeSources.addAll(freshList.split(","))
+            } catch(e: Exception) {
+                // Fallback do Twoich sprawdzonych linków
+                activeSources.addAll(listOf("filman.cc", "vizjer.site", "zaluknij.cc", "iitv.info"))
+            }
+        }
+    }
+
+    private fun analyzeHtml(html: String?, container: LinearLayout) {
+        if (html == null) return
+        val doc = Jsoup.parse(html)
+        val links = doc.select("a[href*=/film/], a[href*=/v/]")
+        
+        runOnUiThread {
+            links.take(3).forEach { link ->
+                val b = Button(this).apply {
+                    text = "ZNALEZIONO: ${link.text().take(25)}"
+                    setOnClickListener { 
+                        // Otwieramy w widocznym WebView, by użytkownik mógł obejrzeć
+                        val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, Uri.parse(link.attr("abs:href")))
+                        startActivity(intent)
+                    }
+                }
+                container.addView(b)
+            }
+        }
+    }
+
+    companion object { init { System.loadLibrary("videoscout") } }
 }
