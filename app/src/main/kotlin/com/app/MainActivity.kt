@@ -14,63 +14,73 @@ class MainActivity : AppCompatActivity() {
     private var engine: WebView? = null
     private var progress: ProgressBar? = null
     private var monitor: TextView? = null
+    
+    // Autonomiczna baza znaleziona podczas pracy
+    private val discoveredSources = mutableSetOf<String>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
-        val root = LinearLayout(this)
-        root.orientation = LinearLayout.VERTICAL
-        root.setBackgroundColor(Color.parseColor("#121212"))
-        root.setPadding(30, 30, 30, 30)
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.parseColor("#0A0A0A"))
+            setPadding(30, 30, 30, 30)
+        }
 
-        val input = EditText(this)
-        input.hint = "Wpisz tytuł..."
-        input.setTextColor(Color.WHITE)
-        input.setHintTextColor(Color.LTGRAY)
-        input.setBackgroundColor(Color.parseColor("#1E1E1E"))
+        val input = EditText(this).apply {
+            hint = "Wpisz film (np. Mavka)..."
+            setTextColor(Color.WHITE)
+            setHintTextColor(Color.DKGRAY)
+            setBackgroundColor(Color.parseColor("#151515"))
+        }
         
-        val btn = Button(this)
-        btn.text = "SKANUJ ŹRÓDŁA"
-        btn.setBackgroundColor(Color.parseColor("#BB86FC"))
-        btn.setTextColor(Color.BLACK)
+        val btn = Button(this).apply {
+            text = "AUTONOMICZNY SKAUTING"
+            setBackgroundColor(Color.parseColor("#6200EE"))
+            setTextColor(Color.WHITE)
+        }
         
-        progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal)
-        progress?.visibility = View.GONE
+        progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+            visibility = View.GONE
+        }
         
-        monitor = TextView(this)
-        monitor?.text = "System gotowy"
-        monitor?.setTextColor(Color.parseColor("#03DAC6"))
+        monitor = TextView(this).apply {
+            text = "Silnik: Gotowy"; setTextColor(Color.parseColor("#BB86FC"))
+        }
 
-        val resultsArea = LinearLayout(this)
-        resultsArea.orientation = LinearLayout.VERTICAL
-        
-        val scroll = ScrollView(this)
-        val scrollParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
-        scroll.layoutParams = scrollParams
-        scroll.addView(resultsArea)
+        val resultsArea = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val scroll = ScrollView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
+            addView(resultsArea)
+        }
 
-        engine = WebView(this)
-        val ws = engine?.settings
-        ws?.javaScriptEnabled = true
-        ws?.domStorageEnabled = true
-        ws?.userAgentString = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/133.0.0.0"
-        
-        engine?.webViewClient = object : WebViewClient() {
-            override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
-                // Linia 66: Używamy jawnego rzutowania i bezpośredniego dostępu
-                this@MainActivity.progress?.visibility = android.view.View.VISIBLE
-                this@MainActivity.monitor?.text = "Analiza: " + (url?.take(30) ?: "")
-            }
+        engine = WebView(this).apply {
+            settings.javaScriptEnabled = true
+            settings.domStorageEnabled = true
+            webViewClient = object : WebViewClient() {
+                override fun onPageFinished(view: WebView?, url: String?) {
+                    this@MainActivity.progress?.visibility = View.GONE
+                    
+                    // Skrypt, który nie tylko szuka linków, ale i ocenia domeny
+                    val discoveryJS = """
+                        (function(){
+                            let results = [];
+                            let links = document.querySelectorAll('a, iframe');
+                            links.forEach(l => {
+                                let href = l.href || l.src;
+                                if(href && href.startsWith('http')) {
+                                    // Sprawdzanie czy link wygląda na wideo/stronę filmową
+                                    let isVideo = /video|movie|film|watch|embed|player|serial/.test(href.toLowerCase());
+                                    results.push({url: href, priority: isVideo});
+                                }
+                            });
+                            return JSON.stringify(results);
+                        })();
+                    """.trimIndent()
 
-            override fun onPageFinished(view: WebView?, url: String?) {
-                this@MainActivity.progress?.visibility = android.view.View.GONE
-                
-                view?.evaluateJavascript("(function(){ " +
-                    "let l=[]; document.querySelectorAll('a,iframe,video').forEach(x=>{ " +
-                    "let s=x.href||x.src; if(s && s.length > 10) l.push(s); " +
-                    "}); return l; " +
-                    "})();") { data ->
-                    displayCleanResults(data, resultsArea)
+                    view?.evaluateJavascript(discoveryJS) { data ->
+                        processAutonomousData(data, resultsArea)
+                    }
                 }
             }
         }
@@ -80,7 +90,9 @@ class MainActivity : AppCompatActivity() {
             val q = input.text.toString()
             if(q.isNotEmpty()) {
                 progress?.visibility = View.VISIBLE
-                val query = URLEncoder.encode(q + " lektor pl", "UTF-8")
+                monitor?.text = "Analiza sieciowa w toku..."
+                // Agresywne zapytanie omijające cenzurę
+                val query = URLEncoder.encode("$q (site:pl | site:cc | site:to | site:info) lektor", "UTF-8")
                 engine?.loadUrl("https://html.duckduckgo.com/html/?q=" + query)
             }
         }
@@ -89,28 +101,39 @@ class MainActivity : AppCompatActivity() {
         setContentView(root)
     }
 
-    private fun displayCleanResults(data: String?, container: LinearLayout) {
-        if (data == null || data == "null") return
-        val rawLinks = data.replace("[", "").replace("]", "").replace("\"", "").split(",")
-        val uniqueLinks = rawLinks.map { it.trim() }.filter { it.startsWith("http") }.toSet()
+    private fun processAutonomousData(json: String?, container: LinearLayout) {
+        if (json == null || json == "null") return
+        
+        // Czyszczenie prostego JSONa z JS
+        val raw = json.replace("\"", "").replace("[{url:", "").replace("}]", "").split("},{url:")
         
         runOnUiThread {
-            uniqueLinks.forEach { link ->
-                if (link.contains("ekino") || link.contains("dailymotion") || link.contains("v=") || link.contains("movie")) {
-                    val b = Button(this)
-                    val label = link.split("/").lastOrNull { it.isNotEmpty() }?.take(25) ?: "ŹRÓDŁO"
-                    b.text = "ODTWÓRZ: " + label
-                    b.setBackgroundColor(Color.parseColor("#2C2C2C"))
-                    b.setTextColor(Color.parseColor("#03DAC6"))
-                    
-                    val bParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-                    bParams.setMargins(0, 8, 0, 8)
-                    b.layoutParams = bParams
-                    
-                    b.setOnClickListener { 
-                        startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, Uri.parse(link))) 
+            raw.forEach { entry ->
+                val parts = entry.split(",priority:")
+                if (parts.size >= 2) {
+                    val url = parts[0].trim()
+                    val isHighPriority = parts[1].contains("true")
+                    val domain = Uri.parse(url).host ?: ""
+
+                    // Jeśli domena jest nowa i wygląda na wideo, dodaj do odkryć
+                    if (isHighPriority && !discoveredSources.contains(domain)) {
+                        discoveredSources.add(domain)
+                        monitor?.text = "Odkryto nowe źródło: $domain"
                     }
-                    container.addView(b)
+
+                    // Wyświetlaj tylko "mięso" - linki o wysokim priorytecie
+                    if (isHighPriority && !url.contains("google") && !url.contains("duckduckgo")) {
+                        val b = Button(this).apply {
+                            val siteTag = domain.uppercase().replace("WWW.", "")
+                            text = "[$siteTag] -> ODKRYTO TREŚĆ"
+                            setBackgroundColor(Color.parseColor("#1E1E1E"))
+                            setTextColor(Color.parseColor("#03DAC6"))
+                            setOnClickListener { 
+                                startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, Uri.parse(url)))
+                            }
+                        }
+                        container.addView(b)
+                    }
                 }
             }
         }
