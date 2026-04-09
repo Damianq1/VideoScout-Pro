@@ -7,9 +7,11 @@ import android.widget.*
 import android.graphics.Color
 
 class MainActivity : AppCompatActivity() {
+    private external fun isBlacklisted(url: String): Boolean
+    private external fun addToBlacklist(domain: String)
+    
     private lateinit var phantomView: WebView
-    private val sources = listOf("filman.cc", "vizjer.site", "zaluknij.cc", "iitv.info")
-    private var currentMovieQuery = ""
+    private val sources = mutableListOf("vizjer.site", "zaluknij.cc", "iitv.info", "ekino-tv.pl")
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -19,100 +21,76 @@ class MainActivity : AppCompatActivity() {
             setPadding(30, 30, 30, 30)
         }
 
-        val input = EditText(this).apply { hint = "Tytuł filmu..."; setTextColor(Color.CYAN) }
-        val btn = Button(this).apply { text = "GŁĘBOKIE SKANOWANIE (ULTRA STEALTH)" }
-        val log = TextView(this).apply { text = "Status: Gotowy (Chrome 133 Engine)"; setTextColor(Color.GREEN) }
+        val input = EditText(this).apply { hint = "Tytuł..."; setTextColor(Color.CYAN) }
+        val btnSearch = Button(this).apply { text = "SKANUJ (BEZ ŚMIECI)" }
         val resultsArea = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val scroll = ScrollView(this).apply { addView(resultsArea) }
 
         phantomView = WebView(this).apply {
-            settings.apply {
-                javaScriptEnabled = true
-                domStorageEnabled = true
-                databaseEnabled = true
-                loadWithOverviewMode = true
-                useWideViewPort = true
-                // AKTUALIZACJA: Najnowszy User-Agent na rok 2026
-                userAgentString = "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.6875.122 Mobile Safari/537.36"
-            }
-
+            settings.javaScriptEnabled = true
+            settings.userAgentString = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0"
+            
             webViewClient = object : WebViewClient() {
-                // Udajemy, że jesteśmy prawdziwą przeglądarką wysyłając nowoczesne nagłówki Client Hints
-                override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
-                    request?.requestHeaders?.put("Sec-CH-UA", "\"Not(A:Brand\";v=\"99\", \"Google Chrome\";v=\"133\", \"Chromium\";v=\"133\"")
-                    request?.requestHeaders?.put("Sec-CH-UA-Mobile", "?1")
-                    request?.requestHeaders?.put("Sec-CH-UA-Platform", "\"Android\"")
-                    return super.shouldInterceptRequest(view, request)
+                // KLUCZOWE: Blokowanie zanim strona się załaduje
+                override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                    val url = request?.url.toString()
+                    if (isBlacklisted(url)) {
+                        runOnUiThread { Toast.makeText(this@MainActivity, "Zablokowano: $url", Toast.LENGTH_SHORT).show() }
+                        return true // Blokuje przejście
+                    }
+                    return false
                 }
 
                 override fun onPageFinished(view: WebView?, url: String?) {
-                    log.text = "Analizuję źródło: $url"
-                    
-                    // Skrypt klikający "Ignoruj" lub "Akceptuj" na popupach blokujących
-                    view?.evaluateJavascript(
-                        "(function() { " +
-                        "  var textToClick = ['ignoruj', 'akceptuj', 'rozumiem', 'zgadzam']; " +
-                        "  var btns = document.querySelectorAll('button, a, span'); " +
-                        "  btns.forEach(function(b) { " +
-                        "    textToClick.forEach(function(t) { " +
-                        "      if(b.innerText.toLowerCase().indexOf(t) > -1) b.click(); " +
-                        "    }); " +
-                        "  }); " +
-                        "})();"
-                    ) {}
-
-                    view?.postDelayed({
-                        view.evaluateJavascript(
-                            "(function() { " +
-                            "  var res = []; " +
-                            "  var items = document.querySelectorAll('a[href*=\"/film/\"], a[href*=\"/v/\"], .title a'); " +
-                            "  items.forEach(function(i) { res.push(i.innerText + '|||' + i.href); }); " +
-                            "  return res; " +
-                            "})();"
-                        ) { value ->
-                            if (value != null && value != "[]" && value != "null") {
-                                parseResults(value, resultsArea)
-                            } else {
-                                // Jeśli pusto, a jesteśmy na stronie logowania/blokady - pokaż WebView
-                                runOnUiThread { phantomView.visibility = android.view.View.VISIBLE }
-                            }
-                        }
-                    }, 2500)
+                    view?.evaluateJavascript("(function() { " +
+                        "var res = []; " +
+                        "document.querySelectorAll('a[href*=\"/film/\"], a[href*=\"/v/\"]').forEach(a => res.push(a.innerText + '|||' + a.href)); " +
+                        "return res; " +
+                    "})();") { value ->
+                        if (value != "[]" && value != null) parseResults(value, resultsArea)
+                    }
                 }
             }
         }
 
-        phantomView.layoutParams = RelativeLayout.LayoutParams(-1, 900).apply { addRule(RelativeLayout.ALIGN_PARENT_BOTTOM) }
-        phantomView.visibility = android.view.View.GONE
-
-        btn.setOnClickListener {
+        btnSearch.setOnClickListener {
             resultsArea.removeAllViews()
-            currentMovieQuery = input.text.toString()
-            phantomView.visibility = android.view.View.GONE
-            if(currentMovieQuery.isNotEmpty()) phantomView.loadUrl("https://${sources[0]}/szukaj/${currentMovieQuery}")
+            val query = input.text.toString()
+            sources.forEach { s -> if(!isBlacklisted(s)) phantomView.loadUrl("https://$s/szukaj/$query") }
         }
 
-        ui.addView(input); ui.addView(btn); ui.addView(log); ui.addView(scroll)
-        root.addView(ui); root.addView(phantomView)
+        // Przycisk do szybkiego czyszczenia listy i dodawania do czarnej listy
+        val btnBlacklist = Button(this).apply {
+            text = "DODAJ OSTATNIĄ DO CZARNEJ LISTY"
+            setOnClickListener {
+                val currentUrl = phantomView.url ?: ""
+                if (currentUrl.isNotEmpty()) {
+                    addToBlacklist(currentUrl)
+                    resultsArea.removeAllViews()
+                    Toast.makeText(this@MainActivity, "Domena wycięta!", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+
+        ui.addView(input); ui.addView(btnSearch); ui.addView(btnBlacklist); ui.addView(scroll)
+        root.addView(ui)
         setContentView(root)
     }
 
     private fun parseResults(value: String, container: LinearLayout) {
-        val clean = value.replace("[", "").replace("]", "").replace("\"", "")
-        val items = clean.split(",")
+        val items = value.replace("[", "").replace("]", "").replace("\"", "").split(",")
         runOnUiThread {
             items.forEach { item ->
                 val parts = item.split("|||")
-                if (parts.size == 2 && parts[0].length > 2) {
-                    val b = Button(this).apply {
-                        text = "FILM: ${parts[0].trim()}"
-                        setOnClickListener { 
-                            startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(parts[1])))
-                        }
-                    }
-                    container.addView(b)
+                if (parts.size == 2 && !isBlacklisted(parts[1])) {
+                    container.addView(Button(this).apply {
+                        text = "FILM: ${parts[0]}"
+                        setOnClickListener { startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(parts[1]))) }
+                    })
                 }
             }
         }
     }
+
+    companion object { init { System.loadLibrary("videoscout") } }
 }
