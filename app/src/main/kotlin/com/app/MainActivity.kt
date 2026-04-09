@@ -6,23 +6,26 @@ import android.webkit.*
 import android.widget.*
 import android.graphics.Color
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
 
 class MainActivity : AppCompatActivity() {
     private lateinit var engine: WebView
     private val queue = mutableListOf<String>()
-    private var isScanning = false
+    private val handler = Handler(Looper.getMainLooper())
+    private var lastUrl = ""
+    private var stallCount = 0
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(Color.BLACK)
-            setPadding(20, 20, 20, 20)
         }
 
         val input = EditText(this).apply { hint = "Tytuł..."; setTextColor(Color.WHITE) }
-        val runBtn = Button(this).apply { text = "START ENGINE" }
-        val console = TextView(this).apply { text = "Logs..."; setTextColor(Color.GREEN); textSize = 12f }
+        val runBtn = Button(this).apply { text = "FORCE START ENGINE" }
+        val console = TextView(this).apply { text = "System IDLE"; setTextColor(Color.GREEN) }
         val results = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val scroll = ScrollView(this).apply { addView(results) }
 
@@ -33,25 +36,9 @@ class MainActivity : AppCompatActivity() {
             
             webViewClient = object : WebViewClient() {
                 override fun onPageFinished(view: WebView?, url: String?) {
-                    console.text = "Processing: $url"
-                    
-                    // Skrypt wyciągający tylko "mięso" (streamy lub linki do podstron z filmem)
-                    view?.evaluateJavascript("""
-                        (function() {
-                            let data = [];
-                            // Szukaj playerów
-                            document.querySelectorAll('iframe, video, embed').forEach(v => {
-                                if(v.src && v.src.includes('http')) data.push('STREAM|||' + v.src);
-                            });
-                            // Szukaj linków, które wyglądają na podstrony z filmem
-                            document.querySelectorAll('a').forEach(a => {
-                                if(a.href.match(/\/(film|v|video|movie|watch)\//)) data.push('LINK|||' + a.href + '|||' + a.innerText);
-                            });
-                            return data;
-                        })();
-                    """.trimIndent()) { valStr ->
-                        processFoundData(valStr, results, console)
-                    }
+                    lastUrl = url ?: ""
+                    stallCount = 0
+                    injectAnalyzer(results, console)
                 }
             }
         }
@@ -60,44 +47,76 @@ class MainActivity : AppCompatActivity() {
             results.removeAllViews()
             queue.clear()
             val q = input.text.toString()
-            if(q.isEmpty()) return@setOnClickListener
-            // Start od DuckDuckGo (skauting)
-            engine.loadUrl("https://html.duckduckgo.com/html/?q=${Uri.encode(q + " lektor pl")}")
+            if(q.isNotEmpty()) {
+                engine.loadUrl("https://html.duckduckgo.com/html/?q=${Uri.encode(q + " lektor pl")}")
+                startHeartbeat(results, console)
+            }
         }
 
         root.addView(input); root.addView(runBtn); root.addView(console); root.addView(scroll)
         setContentView(root)
     }
 
-    private fun processFoundData(data: String?, container: LinearLayout, log: TextView) {
-        val clean = data?.replace("[", "")?.replace("]", "")?.replace("\"", "") ?: return
-        val items = clean.split(",")
-        
-        items.forEach { item ->
-            val parts = item.split("|||")
-            if (parts[0] == "STREAM") {
-                addResultButton(container, "ODTWÓRZ: ${parts[1].take(40)}...", parts[1], Color.GREEN)
-            } else if (parts[0] == "LINK" && queue.size < 5) {
-                // Jeśli to link do strony, dodaj do kolejki "do sprawdzenia" automatycznie
-                val url = parts[1]
-                if (!queue.contains(url)) {
-                    queue.add(url)
-                    log.text = "Queueing: $url"
-                    // Automatyczne przejście głębiej po 3 sekundach
-                    container.postDelayed({ engine.loadUrl(url) }, 3000)
+    private fun startHeartbeat(container: LinearLayout, log: TextView) {
+        handler.removeCallbacksAndMessages(null)
+        handler.postDelayed(object : Runnable {
+            override fun run() {
+                stallCount++
+                log.text = "Heartbeat: Skanowanie... (Stall: $stallCount)"
+                
+                // Jeśli stoi za długo, wymuś scroll i analizę
+                engine.evaluateJavascript("window.scrollTo(0, document.body.scrollHeight);", null)
+                injectAnalyzer(container, log)
+
+                // Jeśli system wisi powyżej 15s na jednej stronie, skocz do następnej w kolejce
+                if (stallCount > 3 && queue.isNotEmpty()) {
+                    val next = queue.removeAt(0)
+                    log.text = "Timeout! Przeskok do: $next"
+                    engine.loadUrl(next)
+                    stallCount = 0
+                }
+                handler.postDelayed(this, 5000)
+            }
+        }, 5000)
+    }
+
+    private fun injectAnalyzer(container: LinearLayout, log: TextView) {
+        engine.evaluateJavascript("""
+            (function() {
+                let found = [];
+                // Wyciągamy streamy bezpośrednie
+                document.querySelectorAll('iframe, video, source').forEach(v => {
+                    let src = v.src || v.getAttribute('src');
+                    if(src && src.startsWith('http')) found.push('STREAM|||' + src);
+                });
+                // Wyciągamy linki do głębokiej analizy
+                document.querySelectorAll('a').forEach(a => {
+                    if(a.href.match(/\/(film|v|video|watch|movie)\//) && !a.href.includes('google')) 
+                        found.push('LINK|||' + a.href);
+                });
+                return found;
+            })();
+        """.trimIndent()) { data ->
+            val items = data?.replace("[", "")?.replace("]", "")?.replace("\"", "")?.split(",") ?: return@evaluateJavascript
+            items.forEach { item ->
+                val p = item.split("|||")
+                if(p.size >= 2) {
+                    if(p[0] == "STREAM") addResult(container, "WIDEO: " + p[1].take(30), p[1])
+                    else if(p[0] == "LINK" && !queue.contains(p[1])) queue.add(p[1])
                 }
             }
         }
     }
 
-    private fun addResultButton(container: LinearLayout, label: String, url: String, color: Int) {
+    private fun addResult(container: LinearLayout, txt: String, url: String) {
         runOnUiThread {
-            val b = Button(this).apply {
-                text = label
-                setTextColor(color)
-                setOnClickListener { startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, Uri.parse(url))) }
+            if (container.findViewWithTag<Button>(url) == null) {
+                val b = Button(this).apply {
+                    text = txt; tag = url; setTextColor(Color.GREEN)
+                    setOnClickListener { startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, Uri.parse(url))) }
+                }
+                container.addView(b)
             }
-            container.addView(b)
         }
     }
 }
