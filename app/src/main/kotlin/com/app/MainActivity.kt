@@ -34,7 +34,6 @@ class MainActivity : AppCompatActivity() {
             
             thread {
                 try {
-                    // Używamy dorka, który celuje w darmowe źródła
                     val query = "$tytul lektor pl -netflix -disney -player"
                     val url = "https://html.duckduckgo.com/html/?q=" + Uri.encode(query)
                     val doc = Jsoup.connect(url).userAgent("Mozilla/5.0").get()
@@ -50,11 +49,7 @@ class MainActivity : AppCompatActivity() {
                                     text = "ŹRÓDŁO: $domain\n${element.text()}"
                                     setTextColor(Color.WHITE)
                                     setBackgroundColor(Color.parseColor("#2C2C2C"))
-                                    
-                                    setOnClickListener { 
-                                        // NOWOŚĆ: Próba głębokiej analizy strony po kliknięciu
-                                        analyzeStream(linkUrl)
-                                    }
+                                    setOnClickListener { analyzeStream(linkUrl) }
                                 }
                                 listContainer.addView(btn)
                             }
@@ -74,14 +69,13 @@ class MainActivity : AppCompatActivity() {
         thread {
             try {
                 val doc = Jsoup.connect(url).userAgent("Mozilla/5.0").timeout(5000).get()
-                // Szukamy tagów <video>, <iframe> lub linków kończących się na .mp4/.mkv
-                val videoTags = doc.select("video source, iframe, a[href~=(?i)\.(mp4|mkv)]")
+                // POPRAWKA: Podwójny backslash przed kropką (\\.)
+                val videoTags = doc.select("video source, iframe, a[href~=(?i)\\.(mp4|mkv)]")
                 
                 runOnUiThread {
                     if (videoTags.isEmpty()) {
-                        Toast.makeText(this@MainActivity, "Nie znaleziono bezpośredniego strumienia. Spróbuj inne źródło.", Toast.LENGTH_LONG).show()
+                        Toast.makeText(this@MainActivity, "Nie znaleziono strumienia. Spróbuj inne źródło.", Toast.LENGTH_LONG).show()
                     } else {
-                        // Tutaj docelowo wywołamy Krok 25 (pobieranie/nadpisywanie)
                         val firstFound = videoTags.first()?.attr("src") ?: videoTags.first()?.attr("href")
                         Toast.makeText(this@MainActivity, "Wykryto: $firstFound", Toast.LENGTH_LONG).show()
                     }
