@@ -8,11 +8,11 @@ Java_com_app_MainActivity_isDomainSafe(JNIEnv* env, jobject thiz, jstring domain
     const char *nativeDomain = env->GetStringUTFChars(domain, 0);
     std::string d = nativeDomain;
     
-    // Czarna lista płatnych gigantów i śmieciowych domen (Punkt 3)
+    // Rozszerzona lista blokad (Punkt 3 i Twoje screeny)
     std::vector<std::string> blacklist = {
-        "google", "youtube", "netflix", "disneyplus", "hbo", 
-        "amazon", "primevideo", "player.pl", "canalplus", 
-        "apple", "netia", "facebook", "wikipedia"
+        "google", "youtube", "netflix", "disney", "hbo", 
+        "apple", "amazon", "player.pl", "canalplus", "vod.pl",
+        "upflix", "filmweb", "justwatch", "netia", "orange", "t-mobile"
     };
     
     bool safe = true;

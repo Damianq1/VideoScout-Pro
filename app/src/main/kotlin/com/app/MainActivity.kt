@@ -11,6 +11,9 @@ import android.net.Uri
 class MainActivity : AppCompatActivity() {
     private external fun isDomainSafe(domain: String): Boolean
 
+    // "Pamięć" ciasteczek (Punkt 6)
+    private val sessionCookies = mutableMapOf<String, String>()
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val root = LinearLayout(this).apply {
@@ -20,11 +23,11 @@ class MainActivity : AppCompatActivity() {
         }
 
         val input = EditText(this).apply {
-            hint = "Wpisz tytuł (np. Vaiana)"
+            hint = "Wpisz tytuł (np. Mavka)"
             setTextColor(Color.WHITE)
         }
 
-        val btnSearch = Button(this).apply { text = "SKANUJ SIECI" }
+        val btnSearch = Button(this).apply { text = "SKANUJ SIECI (STEALTH MODE)" }
         val listContainer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val scroll = ScrollView(this).apply { addView(listContainer) }
 
@@ -34,9 +37,17 @@ class MainActivity : AppCompatActivity() {
             
             thread {
                 try {
-                    val query = "$tytul lektor pl -netflix -disney -player"
+                    // Wyrafinowany dork usuwający VOD z wyników wyszukiwania
+                    val query = "$tytul lektor pl -inurl:player.pl -inurl:netflix -inurl:disneyplus"
                     val url = "https://html.duckduckgo.com/html/?q=" + Uri.encode(query)
-                    val doc = Jsoup.connect(url).userAgent("Mozilla/5.0").get()
+                    
+                    val response = Jsoup.connect(url)
+                        .userAgent("Mozilla/5.0 (Linux; Android 13; SM-G991B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Mobile Safari/537.36")
+                        .header("Accept-Language", "pl-PL,pl;q=0.9,en-US;q=0.8,en;q=0.7")
+                        .execute()
+                    
+                    sessionCookies.putAll(response.cookies())
+                    val doc = response.parse()
                     val links = doc.select(".result__a")
 
                     runOnUiThread {
@@ -56,7 +67,7 @@ class MainActivity : AppCompatActivity() {
                         }
                     }
                 } catch (e: Exception) {
-                    runOnUiThread { Toast.makeText(this@MainActivity, "Błąd skanowania", Toast.LENGTH_SHORT).show() }
+                    runOnUiThread { Toast.makeText(this@MainActivity, "Błąd DuckDuckGo: ${e.message}", Toast.LENGTH_SHORT).show() }
                 }
             }
         }
@@ -65,23 +76,30 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun analyzeStream(url: String) {
-        Toast.makeText(this, "Szukanie wideo na: $url", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, "Analiza Stealth: $url", Toast.LENGTH_SHORT).show()
         thread {
             try {
-                val doc = Jsoup.connect(url).userAgent("Mozilla/5.0").timeout(5000).get()
-                // POPRAWKA: Podwójny backslash przed kropką (\\.)
+                // Udawanie sesji z ciasteczkami i Refererem (Punkt 6)
+                val doc = Jsoup.connect(url)
+                    .userAgent("Mozilla/5.0 (Linux; Android 13; SM-G991B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Mobile Safari/537.36")
+                    .referrer("https://duckduckgo.com/")
+                    .cookies(sessionCookies)
+                    .timeout(8000)
+                    .ignoreHttpErrors(true)
+                    .get()
+
                 val videoTags = doc.select("video source, iframe, a[href~=(?i)\\.(mp4|mkv)]")
                 
                 runOnUiThread {
                     if (videoTags.isEmpty()) {
-                        Toast.makeText(this@MainActivity, "Nie znaleziono strumienia. Spróbuj inne źródło.", Toast.LENGTH_LONG).show()
+                        Toast.makeText(this@MainActivity, "Wykryto zabezpieczenia lub brak pliku. Zmień źródło.", Toast.LENGTH_LONG).show()
                     } else {
                         val firstFound = videoTags.first()?.attr("src") ?: videoTags.first()?.attr("href")
-                        Toast.makeText(this@MainActivity, "Wykryto: $firstFound", Toast.LENGTH_LONG).show()
+                        Toast.makeText(this@MainActivity, "SUKCES: $firstFound", Toast.LENGTH_LONG).show()
                     }
                 }
             } catch (e: Exception) {
-                runOnUiThread { Toast.makeText(this@MainActivity, "Strona zablokowała skanowanie", Toast.LENGTH_SHORT).show() }
+                runOnUiThread { Toast.makeText(this@MainActivity, "Blokada Captcha/Bot: ${e.message}", Toast.LENGTH_SHORT).show() }
             }
         }
     }
