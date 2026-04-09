@@ -1,9 +1,9 @@
 #include <jni.h>
 #include <string>
 #include <vector>
-#include <algorithm>
 
-std::vector<std::string> blacklist = {"filman.cc", "filmo.agency", "lp478", "netflix.com"};
+// Skupiamy się TYLKO na blokowaniu landing page'y reklamowych
+std::vector<std::string> hard_blacklist = {"filmo.agency", "lp478", "onclickalgo", "bet365"};
 
 extern "C" {
 JNIEXPORT jboolean JNICALL
@@ -12,7 +12,7 @@ Java_com_app_MainActivity_isBlacklisted(JNIEnv* env, jobject thiz, jstring url) 
     std::string sUrl = nativeUrl;
     
     bool blocked = false;
-    for (const auto& domain : blacklist) {
+    for (const auto& domain : hard_blacklist) {
         if (sUrl.find(domain) != std::string::npos) {
             blocked = true;
             break;
@@ -21,12 +21,5 @@ Java_com_app_MainActivity_isBlacklisted(JNIEnv* env, jobject thiz, jstring url) 
     
     env->ReleaseStringUTFChars(url, nativeUrl);
     return blocked ? JNI_TRUE : JNI_FALSE;
-}
-
-JNIEXPORT void JNICALL
-Java_com_app_MainActivity_addToBlacklist(JNIEnv* env, jobject thiz, jstring domain) {
-    const char *nativeDomain = env->GetStringUTFChars(domain, 0);
-    blacklist.push_back(std::string(nativeDomain));
-    env->ReleaseStringUTFChars(domain, nativeDomain);
 }
 }

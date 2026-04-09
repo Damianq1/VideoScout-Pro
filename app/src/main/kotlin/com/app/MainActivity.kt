@@ -8,10 +8,10 @@ import android.graphics.Color
 
 class MainActivity : AppCompatActivity() {
     private external fun isBlacklisted(url: String): Boolean
-    private external fun addToBlacklist(domain: String)
-    
     private lateinit var phantomView: WebView
-    private val sources = mutableListOf("vizjer.site", "zaluknij.cc", "iitv.info", "ekino-tv.pl")
+    // Twoja lista "pewniaków"
+    private val mySources = listOf("vizjer.site", "zaluknij.cc", "iitv.info", "ekino-tv.pl", "vider.info")
+    private var sourceIndex = 0
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -21,8 +21,8 @@ class MainActivity : AppCompatActivity() {
             setPadding(30, 30, 30, 30)
         }
 
-        val input = EditText(this).apply { hint = "Tytuł..."; setTextColor(Color.CYAN) }
-        val btnSearch = Button(this).apply { text = "SKANUJ (BEZ ŚMIECI)" }
+        val input = EditText(this).apply { hint = "Tytuł..."; setTextColor(Color.WHITE) }
+        val btn = Button(this).apply { text = "SKANUJ (BEZ ŚMIECI)" }
         val resultsArea = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val scroll = ScrollView(this).apply { addView(resultsArea) }
 
@@ -31,66 +31,61 @@ class MainActivity : AppCompatActivity() {
             settings.userAgentString = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0"
             
             webViewClient = object : WebViewClient() {
-                // KLUCZOWE: Blokowanie zanim strona się załaduje
                 override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                     val url = request?.url.toString()
-                    if (isBlacklisted(url)) {
-                        runOnUiThread { Toast.makeText(this@MainActivity, "Zablokowano: $url", Toast.LENGTH_SHORT).show() }
-                        return true // Blokuje przejście
-                    }
-                    return false
+                    // Blokujemy tylko jeśli to twardy syf z C++
+                    return isBlacklisted(url)
                 }
 
                 override fun onPageFinished(view: WebView?, url: String?) {
+                    // Wyciągamy linki: szukamy wszystkiego co ma /film/ lub /wideo/
                     view?.evaluateJavascript("(function() { " +
-                        "var res = []; " +
-                        "document.querySelectorAll('a[href*=\"/film/\"], a[href*=\"/v/\"]').forEach(a => res.push(a.innerText + '|||' + a.href)); " +
-                        "return res; " +
+                        "var found = []; " +
+                        "document.querySelectorAll('a').forEach(a => { " +
+                        "  if(a.href.match(/\\/(film|wideo|v)\\//)) found.push(a.innerText + '|||' + a.href); " +
+                        "}); " +
+                        "return found; " +
                     "})();") { value ->
-                        if (value != "[]" && value != null) parseResults(value, resultsArea)
+                        if (value != "[]" && value != "null") {
+                            parseAndDisplay(value, resultsArea)
+                        }
                     }
                 }
             }
         }
 
-        btnSearch.setOnClickListener {
+        btn.setOnClickListener {
             resultsArea.removeAllViews()
-            val query = input.text.toString()
-            sources.forEach { s -> if(!isBlacklisted(s)) phantomView.loadUrl("https://$s/szukaj/$query") }
-        }
-
-        // Przycisk do szybkiego czyszczenia listy i dodawania do czarnej listy
-        val btnBlacklist = Button(this).apply {
-            text = "DODAJ OSTATNIĄ DO CZARNEJ LISTY"
-            setOnClickListener {
-                val currentUrl = phantomView.url ?: ""
-                if (currentUrl.isNotEmpty()) {
-                    addToBlacklist(currentUrl)
-                    resultsArea.removeAllViews()
-                    Toast.makeText(this@MainActivity, "Domena wycięta!", Toast.LENGTH_LONG).show()
-                }
+            sourceIndex = 0
+            val movie = input.text.toString()
+            if (movie.isNotEmpty()) {
+                Toast.makeText(this, "Szukam na: ${mySources[sourceIndex]}", Toast.LENGTH_SHORT).show()
+                phantomView.loadUrl("https://${mySources[sourceIndex]}/szukaj/$movie")
             }
         }
 
-        ui.addView(input); ui.addView(btnSearch); ui.addView(btnBlacklist); ui.addView(scroll)
+        ui.addView(input); ui.addView(btn); ui.addView(scroll)
         root.addView(ui)
         setContentView(root)
     }
 
-    private fun parseResults(value: String, container: LinearLayout) {
-        val items = value.replace("[", "").replace("]", "").replace("\"", "").split(",")
+    private fun parseAndDisplay(value: String, container: LinearLayout) {
+        val clean = value.replace("[", "").replace("]", "").replace("\"", "")
+        val lines = clean.split(",")
         runOnUiThread {
-            items.forEach { item ->
-                val parts = item.split("|||")
-                if (parts.size == 2 && !isBlacklisted(parts[1])) {
-                    container.addView(Button(this).apply {
-                        text = "FILM: ${parts[0]}"
-                        setOnClickListener { startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(parts[1]))) }
-                    })
+            lines.forEach { line ->
+                val parts = line.split("|||")
+                if (parts.size == 2 && parts[0].length > 2) {
+                    val b = Button(this).apply {
+                        text = parts[0].trim()
+                        setOnClickListener { 
+                            startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(parts[1]))) 
+                        }
+                    }
+                    container.addView(b)
                 }
             }
         }
     }
-
     companion object { init { System.loadLibrary("videoscout") } }
 }
