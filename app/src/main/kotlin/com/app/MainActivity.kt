@@ -9,7 +9,8 @@ import android.net.Uri
 
 class MainActivity : AppCompatActivity() {
     private lateinit var agentView: WebView
-    private val forbidden = listOf("google", "youtube", "facebook", "wikipedia", "filmweb", "imdb")
+    private val discoveredUrls = mutableListOf<String>()
+    private var scanIndex = 0
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -19,9 +20,9 @@ class MainActivity : AppCompatActivity() {
             setPadding(30, 30, 30, 30)
         }
 
-        val input = EditText(this).apply { hint = "Tytuł (np. Mavka 2023)"; setTextColor(Color.CYAN) }
-        val btn = Button(this).apply { text = "URUCHOM INTELIGENTNY SKAUTING" }
-        val status = TextView(this).apply { text = "Gotowy"; setTextColor(Color.GRAY) }
+        val input = EditText(this).apply { hint = "Tytuł..."; setTextColor(Color.WHITE) }
+        val btn = Button(this).apply { text = "AUTO-SKANER (PYTHON LOGIC)" }
+        val log = TextView(this).apply { text = "Status: Czekam"; setTextColor(Color.GREEN) }
         val resultsArea = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val scroll = ScrollView(this).apply { addView(resultsArea) }
 
@@ -31,26 +32,30 @@ class MainActivity : AppCompatActivity() {
             
             webViewClient = object : WebViewClient() {
                 override fun onPageFinished(view: WebView?, url: String?) {
-                    // FAZA 1: Skauting linków z wyników wyszukiwania (jak w Twoim Pythonie)
                     if (url?.contains("duckduckgo.com") == true) {
-                        status.text = "Skauting: Analiza wyników..."
+                        // FAZA 1: Pobieramy linki i filtrujemy śmieci
                         view?.evaluateJavascript("(function() { " +
                             "  var res = []; " +
-                            "  var links = document.querySelectorAll('.result__a'); " +
-                            "  links.forEach(l => res.push(l.innerText + '|||' + l.href)); " +
-                            "  return res; " +
-                            "})();") { value -> handleDiscovery(value, resultsArea, status) }
-                    } 
-                    // FAZA 2: Głęboka analiza konkretnej strony w poszukiwaniu wideo
-                    else {
-                        status.text = "Analiza głęboka: $url"
-                        view?.evaluateJavascript("(function() { " +
-                            "  var videos = []; " +
-                            "  document.querySelectorAll('a[href*=\"/film/\"], a[href*=\"/v/\"], source, video').forEach(v => { " +
-                            "    videos.push(v.innerText || 'LINK WIDEO' + '|||' + (v.href || v.src)); " +
+                            "  document.querySelectorAll('.result__a').forEach(l => { " +
+                            "    if(!l.href.includes('google') && !l.href.includes('duckduckgo')) res.push(l.href); " +
                             "  }); " +
-                            "  return videos; " +
-                            "})();") { value -> parseVideoLinks(value, resultsArea) }
+                            "  return res; " +
+                        "})();") { value ->
+                            val urls = value.replace("[", "").replace("]", "").replace("\"", "").split(",")
+                            discoveredUrls.clear()
+                            discoveredUrls.addAll(urls.filter { it.length > 10 })
+                            if(discoveredUrls.isNotEmpty()) nextStep(log)
+                        }
+                    } else {
+                        // FAZA 2: Jesteśmy na stronie źródłowej - szukamy odtwarzacza
+                        log.text = "Analiza głęboka: $url"
+                        view?.evaluateJavascript("(function() { " +
+                            "  var players = []; " +
+                            "  document.querySelectorAll('iframe, video, source, a[href*=\".mp4\"]').forEach(i => { " +
+                            "    players.push((i.title || i.innerText || 'Player') + '|||' + (i.src || i.href)); " +
+                            "  }); " +
+                            "  return players; " +
+                        "})();") { res -> parseFinalLinks(res, resultsArea, log) }
                     }
                 }
             }
@@ -58,47 +63,35 @@ class MainActivity : AppCompatActivity() {
 
         btn.setOnClickListener {
             resultsArea.removeAllViews()
+            scanIndex = 0
             val query = "${input.text} lektor pl -zwiastun"
-            status.text = "Szukam nowych źródeł..."
+            log.text = "Skauting w toku..."
             agentView.loadUrl("https://html.duckduckgo.com/html/?q=${Uri.encode(query)}")
         }
 
-        ui.addView(input); ui.addView(btn); ui.addView(status); ui.addView(scroll)
+        ui.addView(input); ui.addView(btn); ui.addView(log); ui.addView(scroll)
         root.addView(ui)
         setContentView(root)
     }
 
-    private fun handleDiscovery(value: String?, container: LinearLayout, status: TextView) {
-        val clean = value?.replace("[", "")?.replace("]", "")?.replace("\"", "") ?: return
-        val items = clean.split(",")
-        items.forEach { item ->
-            val parts = item.split("|||")
-            if (parts.size == 2) {
-                val domain = Uri.parse(parts[1]).host ?: ""
-                // Filtracja "gigantów" (jak w Twoim Pythonie)
-                if (domain.isNotEmpty() && !forbidden.any { domain.contains(it) }) {
-                    runOnUiThread {
-                        val b = Button(this).apply {
-                            text = "SKANUJ: $domain"
-                            setBackgroundColor(Color.parseColor("#1A1A1A"))
-                            setOnClickListener { agentView.loadUrl(parts[1]) }
-                        }
-                        container.addView(b)
-                    }
-                }
-            }
+    private fun nextStep(log: TextView) {
+        if (scanIndex < discoveredUrls.size && scanIndex < 5) {
+            log.text = "Wchodzę na: ${discoveredUrls[scanIndex]}"
+            agentView.loadUrl(discoveredUrls[scanIndex])
+            scanIndex++
         }
     }
 
-    private fun parseVideoLinks(value: String?, container: LinearLayout) {
+    private fun parseFinalLinks(value: String?, container: LinearLayout, log: TextView) {
         val clean = value?.replace("[", "")?.replace("]", "")?.replace("\"", "") ?: return
-        val items = clean.split(",")
-        runOnUiThread {
-            items.forEach { item ->
-                val parts = item.split("|||")
-                if (parts.size == 2 && parts[1].startsWith("http")) {
+        if (clean.length < 5) { nextStep(log); return } // Nic nie ma, idź do nast. strony
+
+        clean.split(",").forEach { item ->
+            val parts = item.split("|||")
+            if (parts.size == 2 && parts[1].startsWith("http")) {
+                runOnUiThread {
                     val b = Button(this).apply {
-                        text = "ODTWÓRZ: ${parts[0].take(30)}"
+                        text = "GOTOWY STREAM: ${parts[0].take(25)}"
                         setTextColor(Color.GREEN)
                         setOnClickListener { startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, Uri.parse(parts[1]))) }
                     }
