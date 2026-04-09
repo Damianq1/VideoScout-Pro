@@ -5,7 +5,6 @@ import android.os.Bundle
 import android.webkit.*
 import android.widget.*
 import android.graphics.Color
-import android.view.View
 import android.net.Uri
 import java.net.URLEncoder
 
@@ -22,80 +21,91 @@ class MainActivity : AppCompatActivity() {
             setPadding(16, 16, 16, 16)
         }
 
-        val input = EditText(this).apply { hint = "Tytuł filmu..."; setTextColor(Color.WHITE) }
-        val btn = Button(this).apply { text = "URUCHOM SKANER" }
+        val input = EditText(this).apply { 
+            hint = "Wpisz tytuł filmu..."
+            setHintTextColor(Color.GRAY)
+            setTextColor(Color.WHITE) 
+        }
+        
+        val btn = Button(this).apply { text = "URUCHOM SILNIK ANALIZY" }
         
         progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
-            visibility = View.GONE
+            // Używamy pełnej ścieżki, żeby uniknąć błędów kompilacji
+            visibility = android.view.View.GONE
         }
         
         monitor = TextView(this).apply { 
-            text = "System: Gotowy"; setTextColor(Color.GREEN); textSize = 10f 
+            text = "Status: Gotowy"; setTextColor(Color.GREEN); textSize = 11f 
         }
 
-        val results = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val resultsArea = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val scroll = ScrollView(this).apply { 
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f)
-            addView(results) 
+            addView(resultsArea) 
         }
 
         engine = WebView(this).apply {
             settings.javaScriptEnabled = true
-            settings.userAgentString = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:115.0) Gecko/20100101 Firefox/115.0"
+            settings.domStorageEnabled = true
+            settings.userAgentString = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36"
             
             webViewClient = object : WebViewClient() {
                 override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
-                    progress.visibility = View.VISIBLE
-                    monitor.text = "Ładowanie: " + (url?.take(50) ?: "")
+                    progress.visibility = android.view.View.VISIBLE
+                    monitor.text = "Łączenie z: " + (url?.take(40) ?: "...")
                 }
 
                 override fun onPageFinished(view: WebView?, url: String?) {
-                    progress.visibility = View.GONE
-                    monitor.append("\n[OK] Strona załadowana. Skanuję kod...")
+                    progress.visibility = android.view.View.GONE
+                    monitor.append("\n[OK] Analizuję źródło...")
                     
-                    val scraperJS = """
+                    val script = """
                         (function() {
-                            let found = [];
-                            document.querySelectorAll('a, iframe, video').forEach(el => {
-                                let link = el.href || el.src;
-                                if(link && link.startsWith('http')) found.push(link);
+                            let results = [];
+                            document.querySelectorAll('a, iframe, video').forEach(item => {
+                                let link = item.href || item.src;
+                                if(link && link.includes('http')) results.push(link);
                             });
-                            return found;
+                            return results;
                         })();
                     """.trimIndent()
 
-                    view?.evaluateJavascript(scraperJS) { res ->
-                        updateUI(res, results)
+                    view?.evaluateJavascript(script) { data ->
+                        processLinks(data, resultsArea)
                     }
                 }
             }
         }
 
         btn.setOnClickListener {
-            results.removeAllViews()
-            monitor.text = "Szukam danych..."
-            val q = input.text.toString()
-            if(q.isNotEmpty()) {
-                val encoded = URLEncoder.encode(q + " lektor pl", "UTF-8")
-                engine.loadUrl("https://html.duckduckgo.com/html/?q=$encoded")
+            resultsArea.removeAllViews()
+            monitor.text = "Inicjalizacja..."
+            val text = input.text.toString()
+            if(text.isNotEmpty()) {
+                val query = URLEncoder.encode(text + " lektor pl", "UTF-8")
+                engine.loadUrl("https://html.duckduckgo.com/html/?q=" + query)
             }
         }
 
-        root.addView(input); root.addView(btn); root.addView(progress); root.addView(monitor); root.addView(scroll)
+        root.addView(input)
+        root.addView(btn)
+        root.addView(progress)
+        root.addView(monitor)
+        root.addView(scroll)
         setContentView(root)
     }
 
-    private fun updateUI(data: String?, container: LinearLayout) {
-        val clean = data?.replace("[", "")?.replace("]", "")?.replace("\"", "") ?: return
-        if (clean.length < 5) return
-
-        clean.split(",").forEach { url ->
-            val u = url.trim()
-            // Filtrujemy tylko to, co nas interesuje (uproszczona logika bez błędnych ukośników)
-            if (u.contains("ekino") || u.contains("dailymotion") || u.contains("v=") || u.contains("film")) {
-                runOnUiThread {
+    private fun processLinks(data: String?, container: LinearLayout) {
+        if (data == null || data == "null" || data == "[]") return
+        val links = data.replace("[", "").replace("]", "").replace("\"", "").split(",")
+        
+        runOnUiThread {
+            links.forEach { rawUrl ->
+                val u = rawUrl.trim()
+                if (u.contains("ekino") || u.contains("dailymotion") || u.contains("film") || u.contains("v=")) {
                     val b = Button(this).apply {
-                        text = "LINK: " + u.takeLast(35)
+                        text = "LINK: " + u.takeLast(30)
+                        setTextColor(Color.CYAN)
                         setOnClickListener { 
                             startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, Uri.parse(u))) 
                         }
