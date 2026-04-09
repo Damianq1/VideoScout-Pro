@@ -2,40 +2,58 @@ package com.app
 
 import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
-import android.widget.LinearLayout
-import android.widget.Button
-import android.widget.TextView
-import android.widget.Toast
+import android.widget.*
+import android.graphics.Color
+import android.view.Gravity
 
 class MainActivity : AppCompatActivity() {
 
     private external fun checkNativeHealth(): String
-    private external fun getFormatCount(): Int
+    private external fun startVideoScan(query: String): String
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
-        val layout = LinearLayout(this).apply {
+        // Główne kontenery (Punkt 4 - struktura)
+        val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(50, 50, 50, 50)
+            setPadding(32, 32, 32, 32)
+            backgroundColor = Color.parseColor("#121212")
         }
 
-        val statusText = TextView(this).apply {
+        val statusTv = TextView(this).apply {
             text = checkNativeHealth()
-            textSize = 18f
+            setTextColor(Color.parseColor("#00E5FF"))
+            textSize = 14f
         }
 
-        val scanButton = Button(this).apply {
-            text = "Rozpocznij Skanowanie"
-            setOnClickListener {
-                val count = getFormatCount()
-                Toast.makeText(context, "Skaner obsługuje $count formatów wideo", Toast.LENGTH_SHORT).show()
-            }
+        val btnScan = Button(this).apply {
+            text = "ROZPOCZNIJ SKANOWANIE"
+            setBackgroundColor(Color.parseColor("#00E5FF"))
+            setTextColor(Color.BLACK)
         }
 
-        layout.addView(statusText)
-        layout.addView(scanButton)
-        setContentView(layout)
+        val resultsTv = TextView(this).apply {
+            setTextColor(Color.WHITE)
+            textSize = 16f
+            setPadding(0, 32, 0, 0)
+        }
+
+        val scrollView = ScrollView(this).apply {
+            addView(resultsTv)
+        }
+
+        // Obsługa kliknięcia (Punkt 6)
+        btnScan.setOnClickListener {
+            val res = startVideoScan("Video_Search_Alpha")
+            resultsTv.text = res
+            Toast.makeText(this, "Skanowanie ukończone", Toast.LENGTH_SHORT).show()
+        }
+
+        root.addView(statusTv)
+        root.addView(btnScan)
+        root.addView(scrollView)
+        setContentView(root)
     }
 
     companion object {
