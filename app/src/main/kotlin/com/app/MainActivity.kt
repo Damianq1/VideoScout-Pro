@@ -5,71 +5,90 @@ import android.os.Bundle
 import android.webkit.*
 import android.widget.*
 import android.graphics.Color
-import android.net.Uri
+import android.view.View
 
 class MainActivity : AppCompatActivity() {
-    private lateinit var agent: WebView
-    
+    private lateinit var engine: WebView
+    private lateinit var progress: ProgressBar
+    private lateinit var monitor: TextView
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val root = LinearLayout(this).apply { 
+        val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.BLACK) 
+            setBackgroundColor(Color.BLACK)
+            setPadding(16, 16, 16, 16)
         }
 
-        val input = EditText(this).apply { hint = "Tytuł z Pythona..."; setTextColor(Color.WHITE) }
-        val btn = Button(this).apply { text = "URUCHOM ANALIZATOR (PYTHON LOGIC)" }
-        val resultsArea = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val input = EditText(this).apply { hint = "Film..."; setTextColor(Color.WHITE) }
+        val btn = Button(this).apply { text = "URUCHOM MONITOROWANY SKAN" }
+        
+        // Wizualny monitor pracy
+        progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+            visibility = View.GONE
+            progressDrawable.setTint(Color.CYAN)
+        }
+        
+        monitor = TextView(this).apply { 
+            text = "System: Gotowy"; setTextColor(Color.GREEN); textSize = 10f 
+        }
 
-        agent = WebView(this).apply {
+        val results = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val scroll = ScrollView(this).apply { 
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f)
+            addView(results) 
+        }
+
+        engine = WebView(this).apply {
             settings.javaScriptEnabled = true
-            // Kluczowe: Udajemy desktopowego Firefoxa, by nie dostać blokady mobilnej
-            settings.userAgentString = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/115.0"
+            settings.userAgentString = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:115.0) Gecko/20100101 Firefox/115.0"
             
             webViewClient = object : WebViewClient() {
+                override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
+                    progress.visibility = View.VISIBLE
+                    monitor.text = "Ładowanie: ${url?.take(50)}..."
+                }
+
                 override fun onPageFinished(view: WebView?, url: String?) {
-                    // Implementacja Twojej "Fazy 2" z Pythona bezpośrednio w JS
-                    val scraperJS = """
-                        (function() {
-                            let links = [];
-                            // Szukamy linków, które nie są śmieciami (Twój filtr z Pythona)
-                            document.querySelectorAll('a').forEach(a => {
-                                let href = a.href;
-                                if(href.match(/filman|ekino|vizjer|zaluknij|vider|dailymotion/) || href.includes('video')) {
-                                    links.push(a.innerText + '|||' + href);
-                                }
-                            });
-                            return links;
-                        })();
-                    """.trimIndent()
+                    progress.visibility = View.GONE
+                    monitor.append("\n[OK] Strona załadowana. Szukam wideo...")
                     
-                    view?.evaluateJavascript(scraperJS) { res ->
-                        displaySmartResults(res, resultsArea)
+                    view?.evaluateJavascript("(function() { " +
+                        "  let found = []; " +
+                        "  document.querySelectorAll('a, iframe, video').forEach(el => { " +
+                        "    let link = el.href || el.src; " +
+                        "    if(link && link.includes('http')) found.push(link); " +
+                        "  }); " +
+                        "  return found; " +
+                        "})();") { res ->
+                        monitor.append("\n[INFO] Znaleziono ${res?.split(",")?.size ?: 0} potencjalnych ścieżek.")
+                        updateUI(res, results)
                     }
                 }
             }
         }
 
         btn.setOnClickListener {
-            resultsArea.removeAllViews()
-            val query = Uri.encode(input.text.toString() + " lektor pl")
-            // Używamy wersji HTML DuckDuckGo, która jest lżejsza dla skryptów
-            agent.loadUrl("https://html.duckduckgo.com/html/?q=$query")
+            results.removeAllViews()
+            monitor.text = "Inicjacja silnika..."
+            val q = input.text.toString()
+            engine.loadUrl("https://html.duckduckgo.com/html/?q=${java.net.URLEncoder.encode(q + " lektor pl", "UTF-8")}")
         }
 
-        root.addView(input); root.addView(btn); root.addView(resultsArea)
+        root.addView(input); root.addView(btn); root.addView(progress); root.addView(monitor); root.addView(scroll)
         setContentView(root)
     }
 
-    private fun displaySmartResults(data: String?, container: LinearLayout) {
+    private fun updateUI(data: String?, container: LinearLayout) {
         val clean = data?.replace("[", "")?.replace("]", "")?.replace("\"", "") ?: return
-        clean.split(",").forEach { item ->
-            val p = item.split("|||")
-            if (p.size >= 2) {
+        clean.split(",").forEach { url ->
+            if (url.contains("ekino") || url.contains("dailymotion") || url.contains("v="/)) {
                 runOnUiThread {
                     val b = Button(this).apply {
-                        text = "ZNALEZIONO: " + p[0].take(30)
-                        setOnClickListener { startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, Uri.parse(p[1]))) }
+                        text = "LINK: " + url.takeLast(30)
+                        setOnClickListener { 
+                            startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))) 
+                        }
                     }
                     container.addView(b)
                 }
