@@ -6,6 +6,8 @@ import android.webkit.*
 import android.widget.*
 import android.graphics.Color
 import android.view.View
+import android.net.Uri
+import java.net.URLEncoder
 
 class MainActivity : AppCompatActivity() {
     private lateinit var engine: WebView
@@ -20,13 +22,11 @@ class MainActivity : AppCompatActivity() {
             setPadding(16, 16, 16, 16)
         }
 
-        val input = EditText(this).apply { hint = "Film..."; setTextColor(Color.WHITE) }
-        val btn = Button(this).apply { text = "URUCHOM MONITOROWANY SKAN" }
+        val input = EditText(this).apply { hint = "Tytuł filmu..."; setTextColor(Color.WHITE) }
+        val btn = Button(this).apply { text = "URUCHOM SKANER" }
         
-        // Wizualny monitor pracy
         progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
             visibility = View.GONE
-            progressDrawable.setTint(Color.CYAN)
         }
         
         monitor = TextView(this).apply { 
@@ -46,22 +46,25 @@ class MainActivity : AppCompatActivity() {
             webViewClient = object : WebViewClient() {
                 override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
                     progress.visibility = View.VISIBLE
-                    monitor.text = "Ładowanie: ${url?.take(50)}..."
+                    monitor.text = "Ładowanie: " + (url?.take(50) ?: "")
                 }
 
                 override fun onPageFinished(view: WebView?, url: String?) {
                     progress.visibility = View.GONE
-                    monitor.append("\n[OK] Strona załadowana. Szukam wideo...")
+                    monitor.append("\n[OK] Strona załadowana. Skanuję kod...")
                     
-                    view?.evaluateJavascript("(function() { " +
-                        "  let found = []; " +
-                        "  document.querySelectorAll('a, iframe, video').forEach(el => { " +
-                        "    let link = el.href || el.src; " +
-                        "    if(link && link.includes('http')) found.push(link); " +
-                        "  }); " +
-                        "  return found; " +
-                        "})();") { res ->
-                        monitor.append("\n[INFO] Znaleziono ${res?.split(",")?.size ?: 0} potencjalnych ścieżek.")
+                    val scraperJS = """
+                        (function() {
+                            let found = [];
+                            document.querySelectorAll('a, iframe, video').forEach(el => {
+                                let link = el.href || el.src;
+                                if(link && link.startsWith('http')) found.push(link);
+                            });
+                            return found;
+                        })();
+                    """.trimIndent()
+
+                    view?.evaluateJavascript(scraperJS) { res ->
                         updateUI(res, results)
                     }
                 }
@@ -70,9 +73,12 @@ class MainActivity : AppCompatActivity() {
 
         btn.setOnClickListener {
             results.removeAllViews()
-            monitor.text = "Inicjacja silnika..."
+            monitor.text = "Szukam danych..."
             val q = input.text.toString()
-            engine.loadUrl("https://html.duckduckgo.com/html/?q=${java.net.URLEncoder.encode(q + " lektor pl", "UTF-8")}")
+            if(q.isNotEmpty()) {
+                val encoded = URLEncoder.encode(q + " lektor pl", "UTF-8")
+                engine.loadUrl("https://html.duckduckgo.com/html/?q=$encoded")
+            }
         }
 
         root.addView(input); root.addView(btn); root.addView(progress); root.addView(monitor); root.addView(scroll)
@@ -81,13 +87,17 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateUI(data: String?, container: LinearLayout) {
         val clean = data?.replace("[", "")?.replace("]", "")?.replace("\"", "") ?: return
+        if (clean.length < 5) return
+
         clean.split(",").forEach { url ->
-            if (url.contains("ekino") || url.contains("dailymotion") || url.contains("v="/)) {
+            val u = url.trim()
+            // Filtrujemy tylko to, co nas interesuje (uproszczona logika bez błędnych ukośników)
+            if (u.contains("ekino") || u.contains("dailymotion") || u.contains("v=") || u.contains("film")) {
                 runOnUiThread {
                     val b = Button(this).apply {
-                        text = "LINK: " + url.takeLast(30)
+                        text = "LINK: " + u.takeLast(35)
                         setOnClickListener { 
-                            startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))) 
+                            startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, Uri.parse(u))) 
                         }
                     }
                     container.addView(b)
