@@ -1,29 +1,27 @@
 #ifndef CONFIG_PARSER_H
 #define CONFIG_PARSER_H
 
-#include <string>
 #include <vector>
-#include <fstream>
-#include "logger.h"
+#include <string>
 
-/**
- * Funkcja: loadDorksFromSettings
- * Opis: Wczytuje dorki z pliku settings.json.
- */
-std::vector<std::string> loadDorksFromSettings(std::string path) {
-    std::vector<std::string> dorks;
-    std::ifstream file(path);
-    std::string line;
-    
-    // Linia 16: Proste szukanie fraz w cudzysłowie (uproszczony parser JSON)
-    while (std::getline(file, line)) {
-        if (line.find("\"") != std::string::npos && line.find(":") == std::string::npos) {
-            size_t start = line.find("\"") + 1;
-            size_t end = line.find("\"", start);
-            dorks.push_back(line.substr(start, end - start));
-        }
+// Klasa pomocnicza do zarządzania wzorcami wyszukiwania (Dorks)
+class ConfigParser {
+public:
+    // Zwraca domyślną listę rozszerzeń wideo do skanowania
+    static std::vector<std::string> getDefaultExtensions() {
+        return {".mp4", ".mkv", ".avi", ".mov"};
     }
-    LOGI("Załadowano %d dorków z konfiguracji", (int)dorks.size());
-    return dorks;
-}
+
+    // Przykładowa funkcja filtrująca (logika skanera)
+    static bool isVideoFile(const std::string& filename) {
+        for (const auto& ext : getDefaultExtensions()) {
+            if (filename.size() >= ext.size() && 
+                filename.compare(filename.size() - ext.size(), ext.size(), ext) == 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+};
+
 #endif
