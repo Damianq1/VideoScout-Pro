@@ -17,62 +17,60 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.parseColor("#121212")) // Głębsza czerń
-            setPadding(30, 30, 30, 30)
-        }
+        
+        val root = LinearLayout(this)
+        root.orientation = LinearLayout.VERTICAL
+        root.setBackgroundColor(Color.parseColor("#121212"))
+        root.setPadding(30, 30, 30, 30)
 
-        val input = EditText(this).apply { 
-            hint = "Wpisz tytuł..."
-            setTextColor(Color.WHITE)
-            setHintTextColor(Color.LTGRAY)
-            setBackgroundColor(Color.parseColor("#1E1E1E"))
-            setPadding(20, 20, 20, 20)
-        }
+        val input = EditText(this)
+        input.hint = "Wpisz tytuł..."
+        input.setTextColor(Color.WHITE)
+        input.setHintTextColor(Color.LTGRAY)
+        input.setBackgroundColor(Color.parseColor("#1E1E1E"))
         
-        val btn = Button(this).apply { 
-            text = "SKANUJ ŹRÓDŁA"
-            setBackgroundColor(Color.parseColor("#BB86FC")) // Fioletowy akcent Material
-            setTextColor(Color.BLACK)
-        }
+        val btn = Button(this)
+        btn.text = "SKANUJ ŹRÓDŁA"
+        btn.setBackgroundColor(Color.parseColor("#BB86FC"))
+        btn.setTextColor(Color.BLACK)
         
-        progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
-            visibility = View.GONE
-            progressDrawable.setTint(Color.parseColor("#03DAC6"))
-        }
+        progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal)
+        progress?.visibility = View.GONE
         
-        monitor = TextView(this).apply { 
-            text = "System gotowy"; setTextColor(Color.parseColor("#03DAC6")); textSize = 12f 
-        }
+        monitor = TextView(this)
+        monitor?.text = "System gotowy"
+        monitor?.setTextColor(Color.parseColor("#03DAC6"))
 
-        val resultsArea = LinearLayout(this).apply { 
-            orientation = LinearLayout.VERTICAL
-            setPadding(0, 20, 0, 0)
-        }
+        val resultsArea = LinearLayout(this)
+        resultsArea.orientation = LinearLayout.VERTICAL
         
-        val scroll = ScrollView(this).apply { 
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
-            addView(resultsArea)
-        }
+        val scroll = ScrollView(this)
+        val scrollParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
+        scroll.layoutParams = scrollParams
+        scroll.addView(resultsArea)
 
-        engine = WebView(this).apply {
-            settings.javaScriptEnabled = true
-            settings.domStorageEnabled = true
-            settings.userAgentString = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/133.0.0.0"
-            
-            webViewClient = object : WebViewClient() {
-                override fun onPageFinished(view: WebView?, url: String?) {
-                    progress?.visibility = View.GONE
-                    monitor?.text = "Analiza: " + (url?.take(40))
-                    
-                    view?.evaluateJavascript("(function(){ " +
-                        "let l=[]; document.querySelectorAll('a,iframe,video').forEach(x=>{ " +
-                        "let s=x.href||x.src; if(s && s.length > 10) l.push(s); " +
-                        "}); return l; " +
-                        "})();") { data ->
-                        displayCleanResults(data, resultsArea)
-                    }
+        engine = WebView(this)
+        val ws = engine?.settings
+        ws?.javaScriptEnabled = true
+        ws?.domStorageEnabled = true
+        ws?.userAgentString = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/133.0.0.0"
+        
+        engine?.webViewClient = object : WebViewClient() {
+            override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
+                // Linia 66: Używamy jawnego rzutowania i bezpośredniego dostępu
+                this@MainActivity.progress?.visibility = android.view.View.VISIBLE
+                this@MainActivity.monitor?.text = "Analiza: " + (url?.take(30) ?: "")
+            }
+
+            override fun onPageFinished(view: WebView?, url: String?) {
+                this@MainActivity.progress?.visibility = android.view.View.GONE
+                
+                view?.evaluateJavascript("(function(){ " +
+                    "let l=[]; document.querySelectorAll('a,iframe,video').forEach(x=>{ " +
+                    "let s=x.href||x.src; if(s && s.length > 10) l.push(s); " +
+                    "}); return l; " +
+                    "})();") { data ->
+                    displayCleanResults(data, resultsArea)
                 }
             }
         }
@@ -82,7 +80,8 @@ class MainActivity : AppCompatActivity() {
             val q = input.text.toString()
             if(q.isNotEmpty()) {
                 progress?.visibility = View.VISIBLE
-                engine?.loadUrl("https://html.duckduckgo.com/html/?q=" + URLEncoder.encode(q + " lektor pl", "UTF-8"))
+                val query = URLEncoder.encode(q + " lektor pl", "UTF-8")
+                engine?.loadUrl("https://html.duckduckgo.com/html/?q=" + query)
             }
         }
 
@@ -92,37 +91,27 @@ class MainActivity : AppCompatActivity() {
 
     private fun displayCleanResults(data: String?, container: LinearLayout) {
         if (data == null || data == "null") return
-        
-        // Użycie Set eliminuje duplikaty widoczne na zrzucie ekranu
         val rawLinks = data.replace("[", "").replace("]", "").replace("\"", "").split(",")
         val uniqueLinks = rawLinks.map { it.trim() }.filter { it.startsWith("http") }.toSet()
         
         runOnUiThread {
             uniqueLinks.forEach { link ->
-                // Filtracja "śmieciowych" linków nawigacyjnych
                 if (link.contains("ekino") || link.contains("dailymotion") || link.contains("v=") || link.contains("movie")) {
-                    val b = Button(this).apply {
-                        // Bardziej czytelna etykieta zamiast hashu
-                        val label = link.split("/").lastOrNull { it.isNotEmpty() }?.take(25) ?: "ŹRÓDŁO"
-                        text = "ODTWÓRZ: $label"
-                        
-                        // Kolory przyjazne dla oka: Ciemne tło przycisku, jasny tekst
-                        setBackgroundColor(Color.parseColor("#2C2C2C"))
-                        setTextColor(Color.parseColor("#03DAC6")) // Turkusowy tekst
-                        
-                        val params = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-                        params.setMargins(0, 5, 0, 5)
-                        layoutParams = params
-                        
-                        setOnClickListener { 
-                            startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, Uri.parse(link))) 
-                        }
+                    val b = Button(this)
+                    val label = link.split("/").lastOrNull { it.isNotEmpty() }?.take(25) ?: "ŹRÓDŁO"
+                    b.text = "ODTWÓRZ: " + label
+                    b.setBackgroundColor(Color.parseColor("#2C2C2C"))
+                    b.setTextColor(Color.parseColor("#03DAC6"))
+                    
+                    val bParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                    bParams.setMargins(0, 8, 0, 8)
+                    b.layoutParams = bParams
+                    
+                    b.setOnClickListener { 
+                        startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, Uri.parse(link))) 
                     }
                     container.addView(b)
                 }
-            }
-            if(container.childCount == 0 && uniqueLinks.isNotEmpty()) {
-                monitor?.text = "Znaleziono linki, ale nie pasują do filtrów (Ekino/Daily)."
             }
         }
     }
