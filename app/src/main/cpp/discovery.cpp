@@ -1,15 +1,12 @@
 #include <jni.h>
 #include <string>
+#include <unistd.h>
 
 extern "C" {
-// Silnik sprawdzający czy link nie jest "śmieciem" płatnym
-JNIEXPORT jboolean JNICALL
-Java_com_app_MainActivity_isDomainSafe(JNIEnv* env, jobject thiz, jstring domain) {
-    const char *nativeDomain = env->GetStringUTFChars(domain, 0);
-    std::string d = nativeDomain;
-    // Agresywnie wycinamy wszystko co nie jest naszą bazą
-    bool safe = (d.find("cda.pl") != std::string::npos || d.find("vider") != std::string::npos);
-    env->ReleaseStringUTFChars(domain, nativeDomain);
-    return safe ? JNI_TRUE : JNI_FALSE;
+JNIEXPORT jstring JNICALL
+Java_com_app_MainActivity_startBuffering(JNIEnv* env, jobject thiz, jstring url) {
+    // Symulacja aktywnego strumieniowania w C++ (Punkt 5)
+    // W przyszłości tu wejdzie libcurl do przechwytywania .ts
+    return env->NewStringUTF("BUFFERING_STARTED");
 }
 }

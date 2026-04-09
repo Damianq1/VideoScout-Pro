@@ -10,96 +10,80 @@ import kotlin.concurrent.thread
 import android.net.Uri
 
 class MainActivity : AppCompatActivity() {
-    private external fun isDomainSafe(domain: String): Boolean
-
     private lateinit var webView: WebView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        
-        val root = RelativeLayout(this).apply {
-            setBackgroundColor(Color.parseColor("#121212"))
-        }
-
-        val mainLayout = LinearLayout(this).apply {
+        val root = RelativeLayout(this).apply { setBackgroundColor(Color.parseColor("#121212")) }
+        val mainLayout = LinearLayout(this).apply { 
             orientation = LinearLayout.VERTICAL
-            setPadding(40, 40, 40, 40)
+            setPadding(40, 40, 40, 40) 
         }
 
         val input = EditText(this).apply {
-            hint = "Wpisz tytuł (szukam na CDA/Vider)"
+            hint = "Wpisz tytuł (CDA / VIDER)"
             setTextColor(Color.WHITE)
         }
 
-        val btnSearch = Button(this).apply { text = "URUCHOM SKANER (STREAMS ONLY)" }
+        val btnSearch = Button(this).apply { text = "GŁĘBOKIE SKANOWANIE BAZ" }
         val listContainer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val scroll = ScrollView(this).apply { addView(listContainer) }
 
-        // WebView do rozwiązywania Captcha/Tokenów
         webView = WebView(this).apply {
-            layoutParams = RelativeLayout.LayoutParams(RelativeLayout.LayoutParams.MATCH_PARENT, 400).apply {
+            layoutParams = RelativeLayout.LayoutParams(RelativeLayout.LayoutParams.MATCH_PARENT, 500).apply {
                 addRule(RelativeLayout.ALIGN_PARENT_BOTTOM)
             }
-            visibility = android.view.View.GONE
             settings.javaScriptEnabled = true
+            visibility = android.view.View.GONE
         }
 
         btnSearch.setOnClickListener {
-            val tytul = input.text.toString()
+            val query = input.text.toString()
             listContainer.removeAllViews()
-            webView.visibility = android.view.View.GONE
-
+            
             thread {
+                val results = mutableListOf<Pair<String, String>>()
+                
+                // 1. Próba CDA (Bezpośrednio)
                 try {
-                    // Szukamy tylko w konkretnych źródłach
-                    val query = "site:cda.pl $tytul | site:vider.info $tytul"
-                    val url = "https://duckduckgo.com/html/?q=" + Uri.encode(query)
-                    
-                    val doc = Jsoup.connect(url)
-                        .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-                        .get()
-
-                    val links = doc.select(".result__a")
-
-                    runOnUiThread {
-                        if (links.isEmpty()) {
-                            Toast.makeText(this@MainActivity, "Wymagana weryfikacja bota. Ładowanie WebView...", Toast.LENGTH_LONG).show()
-                            webView.visibility = android.view.View.VISIBLE
-                            webView.loadUrl(url)
-                        }
-                        
-                        links.forEach { element ->
-                            val linkUrl = element.attr("href")
-                            val btn = Button(this@MainActivity).apply {
-                                text = "WYKRYTO: ${element.text()}"
-                                setOnClickListener { analyzeWithWebView(linkUrl) }
-                            }
-                            listContainer.addView(btn)
-                        }
+                    val cdaUrl = "https://www.cda.pl/info/${Uri.encode(query)}"
+                    val doc = Jsoup.connect(cdaUrl).userAgent("Mozilla/5.0").get()
+                    doc.select("a.hd-film-link").forEach { 
+                        results.add(it.text() to "https://www.cda.pl" + it.attr("href"))
                     }
-                } catch (e: Exception) {
-                    runOnUiThread { 
+                } catch(e: Exception) {}
+
+                // 2. Próba VIDER (Bezpośrednio)
+                try {
+                    val viderUrl = "https://vider.info/szukaj?q=${Uri.encode(query)}"
+                    val doc = Jsoup.connect(viderUrl).userAgent("Mozilla/5.0").get()
+                    doc.select(".video-title a").forEach {
+                        results.add(it.text() to it.attr("href"))
+                    }
+                } catch(e: Exception) {}
+
+                runOnUiThread {
+                    if (results.isEmpty()) {
+                        Toast.makeText(this@MainActivity, "Brak wyników. Przełączam na tryb ręczny...", Toast.LENGTH_SHORT).show()
                         webView.visibility = android.view.View.VISIBLE
-                        webView.loadUrl("https://duckduckgo.com/html/?q=" + Uri.encode(tytul))
+                        webView.loadUrl("https://www.cda.pl/info/${Uri.encode(query)}")
+                    }
+                    results.forEach { (name, link) ->
+                        val btn = Button(this@MainActivity).apply {
+                            text = "FILM: $name"
+                            setOnClickListener { 
+                                webView.visibility = android.view.View.VISIBLE
+                                webView.loadUrl(link)
+                            }
+                        }
+                        listContainer.addView(btn)
                     }
                 }
             }
         }
 
-        mainLayout.addView(input)
-        mainLayout.addView(btnSearch)
-        mainLayout.addView(scroll)
-        root.addView(mainLayout)
-        root.addView(webView)
+        mainLayout.addView(input); mainLayout.addView(btnSearch); mainLayout.addView(scroll)
+        root.addView(mainLayout); root.addView(webView)
         setContentView(root)
     }
-
-    private fun analyzeWithWebView(url: String) {
-        // Zamiast bota, używamy WebView by udawać 100% człowieka
-        webView.visibility = android.view.View.VISIBLE
-        webView.loadUrl(url)
-        Toast.makeText(this, "Przechodzę do źródła...", Toast.LENGTH_SHORT).show()
-    }
-
-    companion object { init { System.loadLibrary("videoscout") } }
 }
