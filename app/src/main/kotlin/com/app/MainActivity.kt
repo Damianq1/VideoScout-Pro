@@ -4,7 +4,6 @@ import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
 import android.widget.*
 import android.graphics.Color
-import android.view.Gravity
 
 class MainActivity : AppCompatActivity() {
 
@@ -14,11 +13,11 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
-        // Główne kontenery (Punkt 4 - struktura)
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(32, 32, 32, 32)
-            backgroundColor = Color.parseColor("#121212")
+            // POPRAWKA: Używamy metody setBackgroundColor
+            setBackgroundColor(Color.parseColor("#121212"))
         }
 
         val statusTv = TextView(this).apply {
@@ -43,7 +42,6 @@ class MainActivity : AppCompatActivity() {
             addView(resultsTv)
         }
 
-        // Obsługa kliknięcia (Punkt 6)
         btnScan.setOnClickListener {
             val res = startVideoScan("Video_Search_Alpha")
             resultsTv.text = res
