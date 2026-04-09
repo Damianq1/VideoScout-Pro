@@ -20,7 +20,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         val input = EditText(this).apply {
-            hint = "Wpisz tytuł (np. Mavka)"
+            hint = "Wpisz tytuł (np. Vaiana)"
             setTextColor(Color.WHITE)
         }
 
@@ -34,7 +34,9 @@ class MainActivity : AppCompatActivity() {
             
             thread {
                 try {
-                    val url = "https://html.duckduckgo.com/html/?q=" + Uri.encode("$tytul lektor pl")
+                    // Używamy dorka, który celuje w darmowe źródła
+                    val query = "$tytul lektor pl -netflix -disney -player"
+                    val url = "https://html.duckduckgo.com/html/?q=" + Uri.encode(query)
                     val doc = Jsoup.connect(url).userAgent("Mozilla/5.0").get()
                     val links = doc.select(".result__a")
 
@@ -46,8 +48,12 @@ class MainActivity : AppCompatActivity() {
                             if (isDomainSafe(domain)) {
                                 val btn = Button(this@MainActivity).apply {
                                     text = "ŹRÓDŁO: $domain\n${element.text()}"
+                                    setTextColor(Color.WHITE)
+                                    setBackgroundColor(Color.parseColor("#2C2C2C"))
+                                    
                                     setOnClickListener { 
-                                        Toast.makeText(context, "Analiza strumienia: $domain", Toast.LENGTH_LONG).show()
+                                        // NOWOŚĆ: Próba głębokiej analizy strony po kliknięciu
+                                        analyzeStream(linkUrl)
                                     }
                                 }
                                 listContainer.addView(btn)
@@ -55,12 +61,36 @@ class MainActivity : AppCompatActivity() {
                         }
                     }
                 } catch (e: Exception) {
-                    runOnUiThread { Toast.makeText(this@MainActivity, "Błąd sieci", Toast.LENGTH_SHORT).show() }
+                    runOnUiThread { Toast.makeText(this@MainActivity, "Błąd skanowania", Toast.LENGTH_SHORT).show() }
                 }
             }
         }
         root.addView(input); root.addView(btnSearch); root.addView(scroll)
         setContentView(root)
     }
+
+    private fun analyzeStream(url: String) {
+        Toast.makeText(this, "Szukanie wideo na: $url", Toast.LENGTH_SHORT).show()
+        thread {
+            try {
+                val doc = Jsoup.connect(url).userAgent("Mozilla/5.0").timeout(5000).get()
+                // Szukamy tagów <video>, <iframe> lub linków kończących się na .mp4/.mkv
+                val videoTags = doc.select("video source, iframe, a[href~=(?i)\.(mp4|mkv)]")
+                
+                runOnUiThread {
+                    if (videoTags.isEmpty()) {
+                        Toast.makeText(this@MainActivity, "Nie znaleziono bezpośredniego strumienia. Spróbuj inne źródło.", Toast.LENGTH_LONG).show()
+                    } else {
+                        // Tutaj docelowo wywołamy Krok 25 (pobieranie/nadpisywanie)
+                        val firstFound = videoTags.first()?.attr("src") ?: videoTags.first()?.attr("href")
+                        Toast.makeText(this@MainActivity, "Wykryto: $firstFound", Toast.LENGTH_LONG).show()
+                    }
+                }
+            } catch (e: Exception) {
+                runOnUiThread { Toast.makeText(this@MainActivity, "Strona zablokowała skanowanie", Toast.LENGTH_SHORT).show() }
+            }
+        }
+    }
+
     companion object { init { System.loadLibrary("videoscout") } }
 }
