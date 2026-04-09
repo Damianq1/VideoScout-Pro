@@ -10,100 +10,115 @@ import android.view.View
 import java.net.URLEncoder
 
 class MainActivity : AppCompatActivity() {
-    // Definiujemy jako nullable, aby uniknąć problemów z lateinit
     private var engine: WebView? = null
     private var progress: ProgressBar? = null
     private var monitor: TextView? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        
-        val root = LinearLayout(this)
-        root.orientation = LinearLayout.VERTICAL
-        root.setBackgroundColor(Color.BLACK)
-        root.setPadding(16, 16, 16, 16)
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.BLACK)
+            setPadding(16, 16, 16, 16)
+        }
 
-        val input = EditText(this)
-        input.hint = "Szukaj filmu..."
-        input.setTextColor(Color.WHITE)
-        input.setHintTextColor(Color.GRAY)
+        val input = EditText(this).apply { 
+            hint = "Szukaj filmu (np. Mavka)..."
+            setTextColor(Color.WHITE)
+            setHintTextColor(Color.GRAY)
+        }
+        val btn = Button(this).apply { text = "SKANUJ I FILTRUJ WIDEO" }
         
-        val btn = Button(this)
-        btn.text = "START SKANER"
+        progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+            visibility = View.GONE
+        }
         
-        progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal)
-        progress?.visibility = View.GONE
-        
-        monitor = TextView(this)
-        monitor?.text = "Gotowy"
-        monitor?.setTextColor(Color.GREEN)
+        monitor = TextView(this).apply { 
+            text = "Status: Gotowy"; setTextColor(Color.CYAN); textSize = 11f 
+        }
 
-        val resultsArea = LinearLayout(this)
-        resultsArea.orientation = LinearLayout.VERTICAL
-        
-        val scroll = ScrollView(this)
-        val params = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f)
-        scroll.layoutParams = params
-        scroll.addView(resultsArea)
+        val resultsArea = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val scroll = ScrollView(this).apply { 
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f)
+            addView(resultsArea)
+        }
 
-        engine = WebView(this)
-        val settings = engine?.settings
-        settings?.javaScriptEnabled = true
-        settings?.domStorageEnabled = true
-        settings?.userAgentString = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/133.0.0.0"
-        
-        engine?.webViewClient = object : WebViewClient() {
-            override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
-                progress?.visibility = View.VISIBLE
-                monitor?.text = "Skanuję: " + (url?.take(30) ?: "")
-            }
+        engine = WebView(this).apply {
+            settings.javaScriptEnabled = true
+            settings.domStorageEnabled = true
+            settings.mediaPlaybackRequiresUserGesture = false
+            settings.userAgentString = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/133.0.0.0"
+            
+            webViewClient = object : WebViewClient() {
+                override fun onPageFinished(view: WebView?, url: String?) {
+                    progress?.visibility = View.GONE
+                    monitor?.text = "Analiza głęboka: " + (url?.take(30))
+                    
+                    // JS szukający wideo z filtrem długości (> 60 min)
+                    val filterJS = """
+                        (function() {
+                            let found = [];
+                            // 1. Szukaj w tagach video
+                            document.querySelectorAll('video').forEach(v => {
+                                let duration = v.duration / 60; // w minutach
+                                if(v.src && (duration > 60 || !duration)) {
+                                    found.push('VIDEO|||' + v.src + '|||Min: ' + Math.round(duration));
+                                }
+                            });
+                            // 2. Szukaj w iframe'ach (odtwarzacze zewnętrzne)
+                            document.querySelectorAll('iframe').forEach(f => {
+                                if(f.src && f.src.includes('http') && !f.src.includes('ads')) {
+                                    found.push('PLAYER|||' + f.src + '|||Embed');
+                                }
+                            });
+                            return found;
+                        })();
+                    """.trimIndent()
 
-            override fun onPageFinished(view: WebView?, url: String?) {
-                progress?.visibility = View.GONE
-                monitor?.append("\n[OK] Szukam linków...")
-                
-                view?.evaluateJavascript("(function(){ " +
-                    "var l=[]; document.querySelectorAll('a,iframe,video').forEach(x=>{ " +
-                    "var s=x.href||x.src; if(s&&s.includes('http')) l.push(s); " +
-                    "}); return l; " +
-                    "})();") { data ->
-                    processFinalLinks(data, resultsArea)
+                    view?.evaluateJavascript(filterJS) { data ->
+                        processFilteredResults(data, resultsArea)
+                    }
                 }
             }
         }
 
         btn.setOnClickListener {
             resultsArea.removeAllViews()
-            val query = input.text.toString()
-            if(query.isNotEmpty()) {
-                val encoded = URLEncoder.encode(query + " lektor pl", "UTF-8")
+            val q = input.text.toString()
+            if(q.isNotEmpty()) {
+                progress?.visibility = View.VISIBLE
+                val encoded = URLEncoder.encode(q + " lektor pl", "UTF-8")
                 engine?.loadUrl("https://html.duckduckgo.com/html/?q=" + encoded)
             }
         }
 
-        root.addView(input)
-        root.addView(btn)
-        root.addView(progress)
-        root.addView(monitor)
-        root.addView(scroll)
+        root.addView(input); root.addView(btn); root.addView(progress); root.addView(monitor); root.addView(scroll)
         setContentView(root)
     }
 
-    private fun processFinalLinks(data: String?, container: LinearLayout) {
-        if (data == null || data == "null") return
+    private fun processFilteredResults(data: String?, container: LinearLayout) {
+        if (data == null || data == "null" || data == "[]") return
         val items = data.replace("[", "").replace("]", "").replace("\"", "").split(",")
         
         runOnUiThread {
-            items.forEach { link ->
-                val l = link.trim()
-                if (l.contains("ekino") || l.contains("dailymotion") || l.contains("film") || l.contains("v=")) {
-                    val b = Button(this)
-                    b.text = "LINK: " + l.takeLast(30)
-                    b.setTextColor(Color.CYAN)
-                    b.setOnClickListener { 
-                        startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, Uri.parse(l))) 
+            items.forEach { item ->
+                val p = item.split("|||")
+                if (p.size >= 2) {
+                    val type = p[0]
+                    val url = p[1].trim()
+                    val info = if(p.size > 2) p[2] else ""
+
+                    // Dodajemy przycisk tylko jeśli to nie jest śmieć
+                    if (!url.contains("google") && !url.contains("facebook")) {
+                        val b = Button(this).apply {
+                            text = "[$type] $info - " + url.takeLast(25)
+                            setTextColor(if(type == "VIDEO") Color.GREEN else Color.YELLOW)
+                            setOnClickListener { 
+                                startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, Uri.parse(url))) 
+                            }
+                        }
+                        container.addView(b)
                     }
-                    container.addView(b)
                 }
             }
         }
