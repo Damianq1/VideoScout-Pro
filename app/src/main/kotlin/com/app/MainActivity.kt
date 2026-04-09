@@ -5,13 +5,11 @@ import android.os.Bundle
 import android.webkit.*
 import android.widget.*
 import android.graphics.Color
+import android.net.Uri
 
 class MainActivity : AppCompatActivity() {
-    private external fun isBlacklisted(url: String): Boolean
-    private lateinit var phantomView: WebView
-    // Twoja lista "pewniaków"
-    private val mySources = listOf("vizjer.site", "zaluknij.cc", "iitv.info", "ekino-tv.pl", "vider.info")
-    private var sourceIndex = 0
+    private lateinit var agentView: WebView
+    private val forbidden = listOf("google", "youtube", "facebook", "wikipedia", "filmweb", "imdb")
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -21,34 +19,38 @@ class MainActivity : AppCompatActivity() {
             setPadding(30, 30, 30, 30)
         }
 
-        val input = EditText(this).apply { hint = "Tytuł..."; setTextColor(Color.WHITE) }
-        val btn = Button(this).apply { text = "SKANUJ (BEZ ŚMIECI)" }
+        val input = EditText(this).apply { hint = "Tytuł (np. Mavka 2023)"; setTextColor(Color.CYAN) }
+        val btn = Button(this).apply { text = "URUCHOM INTELIGENTNY SKAUTING" }
+        val status = TextView(this).apply { text = "Gotowy"; setTextColor(Color.GRAY) }
         val resultsArea = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val scroll = ScrollView(this).apply { addView(resultsArea) }
 
-        phantomView = WebView(this).apply {
+        agentView = WebView(this).apply {
             settings.javaScriptEnabled = true
-            settings.userAgentString = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0"
+            settings.userAgentString = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36"
             
             webViewClient = object : WebViewClient() {
-                override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
-                    val url = request?.url.toString()
-                    // Blokujemy tylko jeśli to twardy syf z C++
-                    return isBlacklisted(url)
-                }
-
                 override fun onPageFinished(view: WebView?, url: String?) {
-                    // Wyciągamy linki: szukamy wszystkiego co ma /film/ lub /wideo/
-                    view?.evaluateJavascript("(function() { " +
-                        "var found = []; " +
-                        "document.querySelectorAll('a').forEach(a => { " +
-                        "  if(a.href.match(/\\/(film|wideo|v)\\//)) found.push(a.innerText + '|||' + a.href); " +
-                        "}); " +
-                        "return found; " +
-                    "})();") { value ->
-                        if (value != "[]" && value != "null") {
-                            parseAndDisplay(value, resultsArea)
-                        }
+                    // FAZA 1: Skauting linków z wyników wyszukiwania (jak w Twoim Pythonie)
+                    if (url?.contains("duckduckgo.com") == true) {
+                        status.text = "Skauting: Analiza wyników..."
+                        view?.evaluateJavascript("(function() { " +
+                            "  var res = []; " +
+                            "  var links = document.querySelectorAll('.result__a'); " +
+                            "  links.forEach(l => res.push(l.innerText + '|||' + l.href)); " +
+                            "  return res; " +
+                            "})();") { value -> handleDiscovery(value, resultsArea, status) }
+                    } 
+                    // FAZA 2: Głęboka analiza konkretnej strony w poszukiwaniu wideo
+                    else {
+                        status.text = "Analiza głęboka: $url"
+                        view?.evaluateJavascript("(function() { " +
+                            "  var videos = []; " +
+                            "  document.querySelectorAll('a[href*=\"/film/\"], a[href*=\"/v/\"], source, video').forEach(v => { " +
+                            "    videos.push(v.innerText || 'LINK WIDEO' + '|||' + (v.href || v.src)); " +
+                            "  }); " +
+                            "  return videos; " +
+                            "})();") { value -> parseVideoLinks(value, resultsArea) }
                     }
                 }
             }
@@ -56,36 +58,53 @@ class MainActivity : AppCompatActivity() {
 
         btn.setOnClickListener {
             resultsArea.removeAllViews()
-            sourceIndex = 0
-            val movie = input.text.toString()
-            if (movie.isNotEmpty()) {
-                Toast.makeText(this, "Szukam na: ${mySources[sourceIndex]}", Toast.LENGTH_SHORT).show()
-                phantomView.loadUrl("https://${mySources[sourceIndex]}/szukaj/$movie")
-            }
+            val query = "${input.text} lektor pl -zwiastun"
+            status.text = "Szukam nowych źródeł..."
+            agentView.loadUrl("https://html.duckduckgo.com/html/?q=${Uri.encode(query)}")
         }
 
-        ui.addView(input); ui.addView(btn); ui.addView(scroll)
+        ui.addView(input); ui.addView(btn); ui.addView(status); ui.addView(scroll)
         root.addView(ui)
         setContentView(root)
     }
 
-    private fun parseAndDisplay(value: String, container: LinearLayout) {
-        val clean = value.replace("[", "").replace("]", "").replace("\"", "")
-        val lines = clean.split(",")
-        runOnUiThread {
-            lines.forEach { line ->
-                val parts = line.split("|||")
-                if (parts.size == 2 && parts[0].length > 2) {
-                    val b = Button(this).apply {
-                        text = parts[0].trim()
-                        setOnClickListener { 
-                            startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(parts[1]))) 
+    private fun handleDiscovery(value: String?, container: LinearLayout, status: TextView) {
+        val clean = value?.replace("[", "")?.replace("]", "")?.replace("\"", "") ?: return
+        val items = clean.split(",")
+        items.forEach { item ->
+            val parts = item.split("|||")
+            if (parts.size == 2) {
+                val domain = Uri.parse(parts[1]).host ?: ""
+                // Filtracja "gigantów" (jak w Twoim Pythonie)
+                if (domain.isNotEmpty() && !forbidden.any { domain.contains(it) }) {
+                    runOnUiThread {
+                        val b = Button(this).apply {
+                            text = "SKANUJ: $domain"
+                            setBackgroundColor(Color.parseColor("#1A1A1A"))
+                            setOnClickListener { agentView.loadUrl(parts[1]) }
                         }
+                        container.addView(b)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun parseVideoLinks(value: String?, container: LinearLayout) {
+        val clean = value?.replace("[", "")?.replace("]", "")?.replace("\"", "") ?: return
+        val items = clean.split(",")
+        runOnUiThread {
+            items.forEach { item ->
+                val parts = item.split("|||")
+                if (parts.size == 2 && parts[1].startsWith("http")) {
+                    val b = Button(this).apply {
+                        text = "ODTWÓRZ: ${parts[0].take(30)}"
+                        setTextColor(Color.GREEN)
+                        setOnClickListener { startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, Uri.parse(parts[1]))) }
                     }
                     container.addView(b)
                 }
             }
         }
     }
-    companion object { init { System.loadLibrary("videoscout") } }
 }

@@ -1,25 +1,20 @@
 #include <jni.h>
 #include <string>
-#include <vector>
-
-// Skupiamy się TYLKO na blokowaniu landing page'y reklamowych
-std::vector<std::string> hard_blacklist = {"filmo.agency", "lp478", "onclickalgo", "bet365"};
 
 extern "C" {
-JNIEXPORT jboolean JNICALL
-Java_com_app_MainActivity_isBlacklisted(JNIEnv* env, jobject thiz, jstring url) {
-    const char *nativeUrl = env->GetStringUTFChars(url, 0);
-    std::string sUrl = nativeUrl;
+JNIEXPORT jint JNICALL
+Java_com_app_MainActivity_rateDomain(JNIEnv* env, jobject thiz, jstring domain) {
+    const char *d = env->GetStringUTFChars(domain, 0);
+    std::string s(d);
+    int score = 0;
     
-    bool blocked = false;
-    for (const auto& domain : hard_blacklist) {
-        if (sUrl.find(domain) != std::string::npos) {
-            blocked = true;
-            break;
-        }
-    }
+    // Agregatory często używają tych końcówek
+    if (s.find(".cc") != std::string::npos) score += 50;
+    if (s.find(".info") != std::string::npos) score += 40;
+    if (s.find(".site") != std::string::npos) score += 40;
+    if (s.find("film") != std::string::npos) score += 30;
     
-    env->ReleaseStringUTFChars(url, nativeUrl);
-    return blocked ? JNI_TRUE : JNI_FALSE;
+    env->ReleaseStringUTFChars(domain, d);
+    return score;
 }
 }
