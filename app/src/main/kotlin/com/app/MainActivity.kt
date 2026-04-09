@@ -9,43 +9,59 @@ import android.net.Uri
 import android.view.View
 import android.view.ViewGroup
 import java.net.URLEncoder
+import com.app.engine.Scouter
 
 class MainActivity : AppCompatActivity() {
     private var engine: WebView? = null
     private var progress: ProgressBar? = null
     private var monitor: TextView? = null
+    private val scouter = Scouter()
     
-    // Autonomiczna baza znaleziona podczas pracy
-    private val discoveredSources = mutableSetOf<String>()
+    // Filtry jako lista (można łatwo rozbudować)
+    private val activeFilters = mutableSetOf<String>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.parseColor("#0A0A0A"))
-            setPadding(30, 30, 30, 30)
+            setBackgroundColor(Color.parseColor("#0F0F0F"))
+            setPadding(20, 20, 20, 20)
         }
 
+        // --- POLE TEKSTOWE ---
         val input = EditText(this).apply {
-            hint = "Wpisz film (np. Mavka)..."
+            hint = "Tytuł filmu..."
             setTextColor(Color.WHITE)
-            setHintTextColor(Color.DKGRAY)
-            setBackgroundColor(Color.parseColor("#151515"))
+            setHintTextColor(Color.GRAY)
         }
-        
+
+        // --- PANEL FILTRÓW (Nowość!) ---
+        val filterPanel = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val filters = listOf("Lektor PL", "Napisy", "HD", "Dailymotion")
+        filters.forEach { filter ->
+            val cb = CheckBox(this).apply {
+                text = filter
+                setTextColor(Color.LTGRAY)
+                setOnCheckedChangeListener { _, isChecked ->
+                    if(isChecked) activeFilters.add(filter) else activeFilters.remove(filter)
+                }
+            }
+            filterPanel.addView(cb)
+        }
+
         val btn = Button(this).apply {
-            text = "AUTONOMICZNY SKAUTING"
-            setBackgroundColor(Color.parseColor("#6200EE"))
-            setTextColor(Color.WHITE)
+            text = "START ENGINE"
+            setBackgroundColor(Color.parseColor("#BB86FC"))
+            setTextColor(Color.BLACK)
         }
         
         progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
             visibility = View.GONE
         }
         
-        monitor = TextView(this).apply {
-            text = "Silnik: Gotowy"; setTextColor(Color.parseColor("#BB86FC"))
+        monitor = TextView(this).apply { 
+            text = "Status: Gotowy"; setTextColor(Color.GREEN); textSize = 10f 
         }
 
         val resultsArea = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
@@ -59,27 +75,10 @@ class MainActivity : AppCompatActivity() {
             settings.domStorageEnabled = true
             webViewClient = object : WebViewClient() {
                 override fun onPageFinished(view: WebView?, url: String?) {
-                    this@MainActivity.progress?.visibility = View.GONE
-                    
-                    // Skrypt, który nie tylko szuka linków, ale i ocenia domeny
-                    val discoveryJS = """
-                        (function(){
-                            let results = [];
-                            let links = document.querySelectorAll('a, iframe');
-                            links.forEach(l => {
-                                let href = l.href || l.src;
-                                if(href && href.startsWith('http')) {
-                                    // Sprawdzanie czy link wygląda na wideo/stronę filmową
-                                    let isVideo = /video|movie|film|watch|embed|player|serial/.test(href.toLowerCase());
-                                    results.push({url: href, priority: isVideo});
-                                }
-                            });
-                            return JSON.stringify(results);
-                        })();
-                    """.trimIndent()
-
-                    view?.evaluateJavascript(discoveryJS) { data ->
-                        processAutonomousData(data, resultsArea)
+                    progress?.visibility = View.GONE
+                    view?.evaluateJavascript(scouter.generateDiscoveryScript()) { data ->
+                        val parsed = scouter.parseJson(data)
+                        updateUI(parsed, resultsArea)
                     }
                 }
             }
@@ -90,50 +89,33 @@ class MainActivity : AppCompatActivity() {
             val q = input.text.toString()
             if(q.isNotEmpty()) {
                 progress?.visibility = View.VISIBLE
-                monitor?.text = "Analiza sieciowa w toku..."
-                // Agresywne zapytanie omijające cenzurę
-                val query = URLEncoder.encode("$q (site:pl | site:cc | site:to | site:info) lektor", "UTF-8")
+                monitor?.text = "Szukam..."
+                
+                // Budowanie zapytania na podstawie zaznaczonych filtrów
+                val filterString = activeFilters.joinToString(" ")
+                val query = URLEncoder.encode("$q $filterString", "UTF-8")
                 engine?.loadUrl("https://html.duckduckgo.com/html/?q=" + query)
             }
         }
 
-        root.addView(input); root.addView(btn); root.addView(progress); root.addView(monitor); root.addView(scroll)
+        root.addView(input); root.addView(filterPanel); root.addView(btn); root.addView(progress); root.addView(monitor); root.addView(scroll)
         setContentView(root)
     }
 
-    private fun processAutonomousData(json: String?, container: LinearLayout) {
-        if (json == null || json == "null") return
-        
-        // Czyszczenie prostego JSONa z JS
-        val raw = json.replace("\"", "").replace("[{url:", "").replace("}]", "").split("},{url:")
-        
+    private fun updateUI(data: List<Pair<String, Boolean>>, container: LinearLayout) {
         runOnUiThread {
-            raw.forEach { entry ->
-                val parts = entry.split(",priority:")
-                if (parts.size >= 2) {
-                    val url = parts[0].trim()
-                    val isHighPriority = parts[1].contains("true")
-                    val domain = Uri.parse(url).host ?: ""
-
-                    // Jeśli domena jest nowa i wygląda na wideo, dodaj do odkryć
-                    if (isHighPriority && !discoveredSources.contains(domain)) {
-                        discoveredSources.add(domain)
-                        monitor?.text = "Odkryto nowe źródło: $domain"
-                    }
-
-                    // Wyświetlaj tylko "mięso" - linki o wysokim priorytecie
-                    if (isHighPriority && !url.contains("google") && !url.contains("duckduckgo")) {
-                        val b = Button(this).apply {
-                            val siteTag = domain.uppercase().replace("WWW.", "")
-                            text = "[$siteTag] -> ODKRYTO TREŚĆ"
-                            setBackgroundColor(Color.parseColor("#1E1E1E"))
-                            setTextColor(Color.parseColor("#03DAC6"))
-                            setOnClickListener { 
-                                startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, Uri.parse(url)))
-                            }
+            data.filter { it.second }.toSet().forEach { (url, _) ->
+                if (!url.contains("google") && !url.contains("duckduckgo")) {
+                    val domain = Uri.parse(url).host?.replace("www.", "") ?: "LINK"
+                    val b = Button(this).apply {
+                        text = "[$domain] -> OTWÓRZ"
+                        setBackgroundColor(Color.parseColor("#1E1E1E"))
+                        setTextColor(Color.parseColor("#03DAC6"))
+                        setOnClickListener { 
+                            startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, Uri.parse(url)))
                         }
-                        container.addView(b)
                     }
+                    container.addView(b)
                 }
             }
         }
