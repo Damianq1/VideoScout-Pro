@@ -1,47 +1,55 @@
 package com.app.engine
 
+import org.json.JSONArray
+import org.json.JSONObject
+
 class Scouter {
     fun generateDiscoveryScript(): String {
         return """
             (function(){
-                // Funkcja skanująca wywoływana z opóźnieniem
                 setTimeout(() => {
-                    let results = [];
-                    let allElems = document.getElementsByTagName('*');
+                    let found = [];
+                    // Skanowanie linków i ramek
+                    document.querySelectorAll('a, iframe, video, source').forEach(el => {
+                        let link = el.href || el.src || el.getAttribute('data-src');
+                        if (link && link.startsWith('http')) {
+                            found.push({url: link});
+                        }
+                    });
                     
-                    for (let el of allElems) {
-                        let attrs = ['src', 'href', 'data-src', 'data-url'];
-                        attrs.forEach(attr => {
-                            let val = el.getAttribute(attr);
-                            if (val && val.startsWith('http')) {
-                                // Agresywne filtrowanie słów kluczowych
-                                let isVideo = /video|movie|film|watch|embed|player|serial|v=|\.mp4|\.m3u8|vidoza|vidload|upstream/.test(val.toLowerCase());
-                                if(isVideo) results.push({url: val, priority: true});
-                            }
-                        });
+                    // Skanowanie tekstu w poszukiwaniu ukrytych URLi
+                    let bodyText = document.body.innerHTML;
+                    let urlRegex = /(https?:\/\/[^\s"'<>]+)/g;
+                    let match;
+                    while ((match = urlRegex.exec(bodyText)) !== null) {
+                        found.push({url: match[1]});
                     }
                     
-                    // Przekazanie wyników do Androida przez specjalny interfejs
-                    window.AndroidInterface.sendResults(JSON.stringify(results));
-                }, 2000); // 2 sekundy zwłoki na wczytanie playerów
-                return "Scanning started...";
+                    if(window.AndroidInterface) {
+                        window.AndroidInterface.sendResults(JSON.stringify(found));
+                    }
+                }, 2500);
             })();
         """.trimIndent()
     }
 
     fun parseJson(json: String?): List<Pair<String, Boolean>> {
-        if (json == null || json == "null" || json == "[]") return emptyList()
+        if (json.isNullOrEmpty() || json == "null" || json == "[]") return emptyList()
         val list = mutableListOf<Pair<String, Boolean>>()
         try {
-            // Czyścimy formatowanie JSON wysłane z JS
-            val items = json.split("},{")
-            for (item in items) {
-                val url = item.substringAfter("url:\"").substringBefore("\",")
+            val array = JSONArray(json)
+            for (i in 0 until array.length()) {
+                val obj = array.getJSONObject(i)
+                val url = obj.getString("url")
                 if (url.startsWith("http")) {
-                    list.add(url to true)
+                    // Kryteria ważności linku
+                    val isVideo = url.contains("v=") || url.contains("embed") || 
+                                 url.contains(".mp4") || url.contains("player") ||
+                                 url.contains("movie") || url.contains("serial")
+                    list.add(url to isVideo)
                 }
             }
-        } catch (e: Exception) {}
+        } catch (e: Exception) { }
         return list
     }
 }

@@ -30,36 +30,19 @@ class MainActivity : AppCompatActivity() {
         val input = EditText(this).apply {
             hint = "Tytuł filmu..."
             setTextColor(Color.WHITE)
-            setHintTextColor(Color.GRAY)
-        }
-
-        val filterPanel = LinearLayout(this).apply { 
-            orientation = LinearLayout.HORIZONTAL 
-            setPadding(0, 10, 0, 10)
-        }
-        
-        listOf("Lektor PL", "Napisy", "HD").forEach { filter ->
-            val cb = CheckBox(this).apply {
-                text = filter
-                setTextColor(Color.LTGRAY)
-                setOnCheckedChangeListener { _, isChecked ->
-                    if(isChecked) activeFilters.add(filter) else activeFilters.remove(filter)
-                }
-            }
-            filterPanel.addView(cb)
         }
 
         val btn = Button(this).apply {
-            text = "URUCHOM SKANER"
+            text = "URUCHOM SILNIK"
             setBackgroundColor(Color.parseColor("#BB86FC"))
-            setTextColor(Color.BLACK)
         }
         
-        progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal)
-        progress?.visibility = View.GONE
+        progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+            visibility = View.GONE
+        }
         
         monitor = TextView(this).apply { 
-            text = "Gotowy"; setTextColor(Color.parseColor("#03DAC6")); textSize = 11f 
+            text = "Status: Gotowy"; setTextColor(Color.GREEN) 
         }
 
         val resultsArea = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
@@ -71,28 +54,21 @@ class MainActivity : AppCompatActivity() {
         engine = WebView(this).apply {
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
-            addJavascriptInterface(object { @JavascriptInterface fun sendResults(data: String) { updateUI(scouter.parseJson(data), resultsArea) } }, "AndroidInterface")
+            settings.userAgentString = "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Mobile Safari/537.36"
             
-            webViewClient = object : WebViewClient() {
-                // Naprawiony błąd referencji przez jawne wskazywanie MainActivity
-                override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
-                    this@MainActivity.progress?.visibility = android.view.View.VISIBLE
-                    this@MainActivity.monitor?.text = "Ładowanie: " + (url?.take(30) ?: "")
-                }
-
-                override fun onPageFinished(view: WebView?, url: String?) {
-                    this@MainActivity.progress?.visibility = android.view.View.GONE
-                    this@MainActivity.monitor?.text = "Analiza kodu strony..."
-                    
-                    view?.evaluateJavascript(scouter.generateDiscoveryScript()) { data ->
-                        val parsed = scouter.parseJson(data)
-                        updateUI(parsed, resultsArea)
+            addJavascriptInterface(object {
+                @JavascriptInterface
+                fun sendResults(data: String) {
+                    runOnUiThread {
+                        updateUI(scouter.parseJson(data), resultsArea)
                     }
                 }
+            }, "AndroidInterface")
 
-                override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
-                    this@MainActivity.progress?.visibility = android.view.View.GONE
-                    this@MainActivity.monitor?.text = "Błąd połączenia. Spróbuj ponownie."
+            webViewClient = object : WebViewClient() {
+                override fun onPageFinished(view: WebView?, url: String?) {
+                    this@MainActivity.monitor?.text = "Skanowanie głębokie..."
+                    view?.evaluateJavascript(scouter.generateDiscoveryScript(), null)
                 }
             }
         }
@@ -102,32 +78,37 @@ class MainActivity : AppCompatActivity() {
             val q = input.text.toString()
             if(q.isNotEmpty()) {
                 progress?.visibility = View.VISIBLE
-                val fStr = activeFilters.joinToString(" ")
-                val query = URLEncoder.encode("$q $fStr", "UTF-8")
-                engine?.loadUrl("https://html.duckduckgo.com/html/?q=" + query)
+                // Zmieniamy na Google, bo DuckDuckGo HTML częściej blokuje boty
+                val query = URLEncoder.encode("$q lektor pl", "UTF-8")
+                engine?.loadUrl("https://www.google.com/search?q=" + query)
             }
         }
 
-        root.addView(input); root.addView(filterPanel); root.addView(btn); root.addView(progress); root.addView(monitor); root.addView(scroll)
+        root.addView(input); root.addView(btn); root.addView(progress); root.addView(monitor); root.addView(scroll)
         setContentView(root)
     }
 
     private fun updateUI(data: List<Pair<String, Boolean>>, container: LinearLayout) {
-        runOnUiThread {
-            if(data.isEmpty()) monitor?.text = "Nic nie znaleziono na tej stronie."
-            data.toSet().forEach { (url, _) ->
-                if (!url.contains("google") && !url.contains("duckduckgo")) {
+        progress?.visibility = View.GONE
+        if(data.isEmpty()) {
+            monitor?.text = "Brak linków w kodzie strony."
+            return
+        }
+        
+        monitor?.text = "Znaleziono ${data.size} potencjalnych źródeł"
+        
+        data.toSet().forEach { (url, isVideo) ->
+            if (!url.contains("google") && !url.contains("gstatic")) {
+                val b = Button(this).apply {
                     val domain = Uri.parse(url).host?.replace("www.", "")?.uppercase() ?: "LINK"
-                    val b = Button(this).apply {
-                        text = "[$domain] OTWÓRZ"
-                        setBackgroundColor(Color.parseColor("#1E1E1E"))
-                        setTextColor(Color.parseColor("#03DAC6"))
-                        setOnClickListener { 
-                            startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, Uri.parse(url)))
-                        }
+                    text = "[$domain] OTWÓRZ"
+                    setTextColor(if(isVideo) Color.CYAN else Color.WHITE)
+                    setBackgroundColor(Color.parseColor("#1E1E1E"))
+                    setOnClickListener { 
+                        startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, Uri.parse(url)))
                     }
-                    container.addView(b)
                 }
+                container.addView(b)
             }
         }
     }
