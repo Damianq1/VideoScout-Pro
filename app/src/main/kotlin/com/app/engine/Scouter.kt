@@ -6,46 +6,50 @@ class Scouter {
     fun generateDiscoveryScript(): String {
         return """
             (function(){
-                setTimeout(() => {
+                const scan = () => {
                     let found = [];
-                    // Szukamy elementów, które mogą być przyciskami lub linkami do filmów
-                    document.querySelectorAll('a, button, div, span, iframe').forEach(el => {
-                        let text = el.innerText ? el.innerText.toLowerCase() : '';
-                        let link = el.href || el.getAttribute('data-src') || el.src;
-                        
+                    // 1. Skanowanie wszystkiego co ma atrybuty linkowe
+                    let all = document.querySelectorAll('*');
+                    all.forEach(el => {
+                        let link = el.href || el.src || el.getAttribute('data-src') || el.getAttribute('data-url');
                         if (link && link.startsWith('http')) {
-                            // "Bystre" słowa kluczowe - szukamy kontekstu wokół linku
-                            let context = text + ' ' + el.className + ' ' + el.id;
-                            let isMovieContext = /oglądaj|watch|lektor|napisy|dubbing|720p|1080p|serwer|host|player|vidoza|upstream|voe|dood/.test(context.toLowerCase());
-                            
-                            // Jeśli link prowadzi do znanych playerów lub ma filmowy kontekst - bierzemy go
-                            if (isMovieContext || /v=|embed|\.mp4|\.m3u8/.test(link.toLowerCase())) {
-                                found.push({
-                                    url: link, 
-                                    title: text.substring(0, 30).trim() || 'Link Bezpośredni'
-                                });
-                            }
+                            let text = (el.innerText || el.title || el.alt || '').trim();
+                            found.push({url: link, title: text});
                         }
                     });
-                    
+
+                    // 2. Skanowanie ukrytych skryptów (RAW Regex)
+                    let rawHTML = document.documentElement.innerHTML;
+                    let urlRegex = /(https?:\/\/[^\s"'<>]+)/g;
+                    let match;
+                    while ((match = urlRegex.exec(rawHTML)) !== null) {
+                        found.push({url: match[1], title: 'Link z kodu'});
+                    }
+
                     if(window.AndroidInterface) {
                         window.AndroidInterface.sendResults(JSON.stringify(found));
                     }
-                }, 2500);
+                };
+                // Próbujemy skanować od razu i po 3 sekundach
+                scan();
+                setTimeout(scan, 3000);
             })();
         """.trimIndent()
     }
 
     fun parseJson(json: String?): List<Pair<String, String>> {
-        if (json.isNullOrEmpty() || json == "null" || json == "[]") return emptyList()
+        if (json.isNullOrEmpty() || json == "null") return emptyList()
         val list = mutableListOf<Pair<String, String>>()
         try {
             val array = JSONArray(json)
             for (i in 0 until array.length()) {
                 val obj = array.getJSONObject(i)
-                list.add(obj.getString("url") to obj.getString("title"))
+                val url = obj.getString("url")
+                if (!url.contains("google") && !url.contains("gstatic") && url.length > 10) {
+                    list.add(url to obj.optString("title", "SPRAWDŹ"))
+                }
             }
-        } catch (e: Exception) { }
-        return list
+        } catch (e: Exception) {}
+        return list.distinctBy { it.first }
     }
 }

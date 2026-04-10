@@ -12,61 +12,60 @@ import java.net.URLEncoder
 import com.app.engine.Scouter
 
 class MainActivity : AppCompatActivity() {
-    private var progress: ProgressBar? = null
     private var monitor: TextView? = null
     private val scouter = Scouter()
+    private lateinit var resultsArea: LinearLayout
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.parseColor("#0F0F0F"))
+            setBackgroundColor(Color.parseColor("#0A0A0A"))
             setPadding(20, 20, 20, 20)
         }
 
         val input = EditText(this).apply {
-            hint = "Tytuł filmu..."
+            hint = "Wpisz tytuł..."
             setTextColor(Color.WHITE)
+            setHintTextColor(Color.GRAY)
         }
 
         val btn = Button(this).apply {
-            text = "INTELIGENTNY SKAUTING"
+            text = "DEEP SCAN (AGRESYWNY)"
             setBackgroundColor(Color.parseColor("#BB86FC"))
         }
         
-        progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
-            visibility = View.GONE
-        }
-        
         monitor = TextView(this).apply { 
-            text = "Status: Gotowy"; setTextColor(Color.GREEN) 
+            text = "Status: Gotowy"; setTextColor(Color.CYAN); textSize = 12f 
         }
 
-        val resultsArea = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        resultsArea = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val scroll = ScrollView(this).apply {
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
             addView(resultsArea)
         }
 
-        val webView = WebView(this).apply {
+        val web = WebView(this).apply {
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
-            settings.userAgentString = "Mozilla/5.0 (Linux; Android 10) Chrome/110.0.0.0 Mobile"
+            settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
             
             addJavascriptInterface(object {
                 @JavascriptInterface
                 fun sendResults(data: String) {
                     runOnUiThread {
                         val parsed = scouter.parseJson(data)
-                        updateUI(parsed, resultsArea)
+                        if(parsed.isNotEmpty()) {
+                            monitor?.text = "Znalazłem ${parsed.size} linków!"
+                            updateUI(parsed)
+                        }
                     }
                 }
             }, "AndroidInterface")
 
             webViewClient = object : WebViewClient() {
                 override fun onPageFinished(view: WebView?, url: String?) {
-                    monitor?.text = "Analiza kontekstu filmowego..."
                     view?.evaluateJavascript(scouter.generateDiscoveryScript(), null)
                 }
             }
@@ -76,46 +75,26 @@ class MainActivity : AppCompatActivity() {
             resultsArea.removeAllViews()
             val q = input.text.toString()
             if(q.isNotEmpty()) {
-                progress?.visibility = View.VISIBLE
+                monitor?.text = "Uruchamiam silnik..."
                 val query = URLEncoder.encode("$q film online", "UTF-8")
-                webView.loadUrl("https://www.google.com/search?q=" + query)
+                web.loadUrl("https://www.google.com/search?q=" + query)
             }
         }
 
-        root.addView(input); root.addView(btn); root.addView(progress); root.addView(monitor); root.addView(scroll)
+        root.addView(input); root.addView(btn); root.addView(monitor); root.addView(scroll)
         setContentView(root)
     }
 
-    private fun updateUI(data: List<Pair<String, String>>, container: LinearLayout) {
-        progress?.visibility = View.GONE
-        if(data.isEmpty()) {
-            monitor?.text = "Nie widzę nic ciekawego na tej stronie."
-            return
-        }
-        
-        // Unikalność linków
-        data.distinctBy { it.first }.forEach { (url, title) ->
-            if (!url.contains("google") && !url.contains("gstatic")) {
-                val domain = Uri.parse(url).host?.replace("www.", "")?.uppercase() ?: "INFO"
-                val b = Button(this).apply {
-                    // Jeśli skaner znalazł tekst (np. "Lektor PL"), wyświetlamy go
-                    val label = if (title.length > 5) title.uppercase() else "SPRAWDŹ ŹRÓDŁO"
-                    text = "[$domain] $label"
-                    
-                    setTextColor(Color.CYAN)
-                    setBackgroundColor(Color.parseColor("#1E1E1E"))
-                    
-                    val params = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-                    params.setMargins(0, 5, 0, 5)
-                    layoutParams = params
-
-                    setOnClickListener { 
-                        startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, Uri.parse(url)))
-                    }
-                }
-                container.addView(b)
+    private fun updateUI(data: List<Pair<String, String>>) {
+        data.forEach { (url, title) ->
+            val b = Button(this).apply {
+                val domain = Uri.parse(url).host?.replace("www.", "")?.uppercase() ?: "LINK"
+                text = "[$domain] ${title.take(20)}"
+                setBackgroundColor(Color.parseColor("#1E1E1E"))
+                setTextColor(Color.WHITE)
+                setOnClickListener { startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, Uri.parse(url))) }
             }
+            resultsArea.addView(b)
         }
-        monitor?.text = "Znaleziono ${container.childCount} inteligentnych odnośników."
     }
 }
