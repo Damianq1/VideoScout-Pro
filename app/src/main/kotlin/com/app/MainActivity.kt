@@ -16,8 +16,6 @@ class MainActivity : AppCompatActivity() {
     private var progress: ProgressBar? = null
     private var monitor: TextView? = null
     private val scouter = Scouter()
-    
-    // Filtry jako lista (można łatwo rozbudować)
     private val activeFilters = mutableSetOf<String>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -29,17 +27,18 @@ class MainActivity : AppCompatActivity() {
             setPadding(20, 20, 20, 20)
         }
 
-        // --- POLE TEKSTOWE ---
         val input = EditText(this).apply {
             hint = "Tytuł filmu..."
             setTextColor(Color.WHITE)
             setHintTextColor(Color.GRAY)
         }
 
-        // --- PANEL FILTRÓW (Nowość!) ---
-        val filterPanel = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        val filters = listOf("Lektor PL", "Napisy", "HD", "Dailymotion")
-        filters.forEach { filter ->
+        val filterPanel = LinearLayout(this).apply { 
+            orientation = LinearLayout.HORIZONTAL 
+            setPadding(0, 10, 0, 10)
+        }
+        
+        listOf("Lektor PL", "Napisy", "HD").forEach { filter ->
             val cb = CheckBox(this).apply {
                 text = filter
                 setTextColor(Color.LTGRAY)
@@ -51,17 +50,16 @@ class MainActivity : AppCompatActivity() {
         }
 
         val btn = Button(this).apply {
-            text = "START ENGINE"
+            text = "URUCHOM SKANER"
             setBackgroundColor(Color.parseColor("#BB86FC"))
             setTextColor(Color.BLACK)
         }
         
-        progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
-            visibility = View.GONE
-        }
+        progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal)
+        progress?.visibility = View.GONE
         
         monitor = TextView(this).apply { 
-            text = "Status: Gotowy"; setTextColor(Color.GREEN); textSize = 10f 
+            text = "Gotowy"; setTextColor(Color.parseColor("#03DAC6")); textSize = 11f 
         }
 
         val resultsArea = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
@@ -73,13 +71,27 @@ class MainActivity : AppCompatActivity() {
         engine = WebView(this).apply {
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
+            
             webViewClient = object : WebViewClient() {
+                // Naprawiony błąd referencji przez jawne wskazywanie MainActivity
+                override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
+                    this@MainActivity.progress?.visibility = android.view.View.VISIBLE
+                    this@MainActivity.monitor?.text = "Ładowanie: " + (url?.take(30) ?: "")
+                }
+
                 override fun onPageFinished(view: WebView?, url: String?) {
-                    progress?.visibility = View.GONE
+                    this@MainActivity.progress?.visibility = android.view.View.GONE
+                    this@MainActivity.monitor?.text = "Analiza kodu strony..."
+                    
                     view?.evaluateJavascript(scouter.generateDiscoveryScript()) { data ->
                         val parsed = scouter.parseJson(data)
                         updateUI(parsed, resultsArea)
                     }
+                }
+
+                override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
+                    this@MainActivity.progress?.visibility = android.view.View.GONE
+                    this@MainActivity.monitor?.text = "Błąd połączenia. Spróbuj ponownie."
                 }
             }
         }
@@ -89,11 +101,8 @@ class MainActivity : AppCompatActivity() {
             val q = input.text.toString()
             if(q.isNotEmpty()) {
                 progress?.visibility = View.VISIBLE
-                monitor?.text = "Szukam..."
-                
-                // Budowanie zapytania na podstawie zaznaczonych filtrów
-                val filterString = activeFilters.joinToString(" ")
-                val query = URLEncoder.encode("$q $filterString", "UTF-8")
+                val fStr = activeFilters.joinToString(" ")
+                val query = URLEncoder.encode("$q $fStr", "UTF-8")
                 engine?.loadUrl("https://html.duckduckgo.com/html/?q=" + query)
             }
         }
@@ -104,11 +113,12 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateUI(data: List<Pair<String, Boolean>>, container: LinearLayout) {
         runOnUiThread {
+            if(data.isEmpty()) monitor?.text = "Nic nie znaleziono na tej stronie."
             data.filter { it.second }.toSet().forEach { (url, _) ->
                 if (!url.contains("google") && !url.contains("duckduckgo")) {
-                    val domain = Uri.parse(url).host?.replace("www.", "") ?: "LINK"
+                    val domain = Uri.parse(url).host?.replace("www.", "")?.uppercase() ?: "LINK"
                     val b = Button(this).apply {
-                        text = "[$domain] -> OTWÓRZ"
+                        text = "[$domain] OTWÓRZ"
                         setBackgroundColor(Color.parseColor("#1E1E1E"))
                         setTextColor(Color.parseColor("#03DAC6"))
                         setOnClickListener { 
