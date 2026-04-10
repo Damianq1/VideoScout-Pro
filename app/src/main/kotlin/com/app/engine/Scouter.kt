@@ -3,36 +3,38 @@ package com.app.engine
 import org.json.JSONArray
 
 class Scouter {
+    // Twoja baza - "Subskrypcje"
+    val subscribedSources = listOf(
+        "iitv.info", "zaluknij.cc", "virpe.cc", "ekino-tv.pl", 
+        "obejrzyj.to", "cda-hd.cc", "film.telewizjada.xyz", 
+        "filmyonline.cc", "teletivi.pl", "filman.cc", 
+        "vizjer.site", "filser.cc", "telekino.top"
+    )
+
+    fun generateSearchQuery(title: String, onlySubscribed: Boolean): String {
+        return if (onlySubscribed) {
+            // Generuje: "tytuł (site:strona1.pl OR site:strona2.cc ...)"
+            val sites = subscribedSources.joinToString(" OR ") { "site:$it" }
+            "$title ($sites)"
+        } else {
+            "$title film online lektor"
+        }
+    }
+
     fun generateDiscoveryScript(): String {
         return """
             (function(){
-                const scan = () => {
+                setTimeout(() => {
                     let found = [];
-                    // 1. Skanowanie wszystkiego co ma atrybuty linkowe
-                    let all = document.querySelectorAll('*');
-                    all.forEach(el => {
-                        let link = el.href || el.src || el.getAttribute('data-src') || el.getAttribute('data-url');
+                    document.querySelectorAll('a, iframe, video').forEach(el => {
+                        let link = el.href || el.src || el.getAttribute('data-src');
                         if (link && link.startsWith('http')) {
-                            let text = (el.innerText || el.title || el.alt || '').trim();
+                            let text = (el.innerText || el.title || 'Źródło').trim().substring(0, 25);
                             found.push({url: link, title: text});
                         }
                     });
-
-                    // 2. Skanowanie ukrytych skryptów (RAW Regex)
-                    let rawHTML = document.documentElement.innerHTML;
-                    let urlRegex = /(https?:\/\/[^\s"'<>]+)/g;
-                    let match;
-                    while ((match = urlRegex.exec(rawHTML)) !== null) {
-                        found.push({url: match[1], title: 'Link z kodu'});
-                    }
-
-                    if(window.AndroidInterface) {
-                        window.AndroidInterface.sendResults(JSON.stringify(found));
-                    }
-                };
-                // Próbujemy skanować od razu i po 3 sekundach
-                scan();
-                setTimeout(scan, 3000);
+                    if(window.AndroidInterface) window.AndroidInterface.sendResults(JSON.stringify(found));
+                }, 2000);
             })();
         """.trimIndent()
     }
@@ -44,10 +46,7 @@ class Scouter {
             val array = JSONArray(json)
             for (i in 0 until array.length()) {
                 val obj = array.getJSONObject(i)
-                val url = obj.getString("url")
-                if (!url.contains("google") && !url.contains("gstatic") && url.length > 10) {
-                    list.add(url to obj.optString("title", "SPRAWDŹ"))
-                }
+                list.add(obj.getString("url") to obj.getString("title"))
             }
         } catch (e: Exception) {}
         return list.distinctBy { it.first }
