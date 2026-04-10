@@ -114,7 +114,7 @@ class MainActivity : AppCompatActivity() {
     private fun updateUI(data: List<Pair<String, Boolean>>, container: LinearLayout) {
         runOnUiThread {
             if(data.isEmpty()) monitor?.text = "Nic nie znaleziono na tej stronie."
-            data.filter { it.second }.toSet().forEach { (url, _) ->
+            data.toSet().forEach { (url, _) ->
                 if (!url.contains("google") && !url.contains("duckduckgo")) {
                     val domain = Uri.parse(url).host?.replace("www.", "")?.uppercase() ?: "LINK"
                     val b = Button(this).apply {
