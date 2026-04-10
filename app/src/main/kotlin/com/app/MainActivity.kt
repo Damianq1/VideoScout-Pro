@@ -12,11 +12,9 @@ import java.net.URLEncoder
 import com.app.engine.Scouter
 
 class MainActivity : AppCompatActivity() {
-    private var engine: WebView? = null
     private var progress: ProgressBar? = null
     private var monitor: TextView? = null
     private val scouter = Scouter()
-    private val activeFilters = mutableSetOf<String>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -33,7 +31,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         val btn = Button(this).apply {
-            text = "URUCHOM SILNIK"
+            text = "INTELIGENTNY SKAUTING"
             setBackgroundColor(Color.parseColor("#BB86FC"))
         }
         
@@ -51,23 +49,24 @@ class MainActivity : AppCompatActivity() {
             addView(resultsArea)
         }
 
-        engine = WebView(this).apply {
+        val webView = WebView(this).apply {
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
-            settings.userAgentString = "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Mobile Safari/537.36"
+            settings.userAgentString = "Mozilla/5.0 (Linux; Android 10) Chrome/110.0.0.0 Mobile"
             
             addJavascriptInterface(object {
                 @JavascriptInterface
                 fun sendResults(data: String) {
                     runOnUiThread {
-                        updateUI(scouter.parseJson(data), resultsArea)
+                        val parsed = scouter.parseJson(data)
+                        updateUI(parsed, resultsArea)
                     }
                 }
             }, "AndroidInterface")
 
             webViewClient = object : WebViewClient() {
                 override fun onPageFinished(view: WebView?, url: String?) {
-                    this@MainActivity.monitor?.text = "Skanowanie głębokie..."
+                    monitor?.text = "Analiza kontekstu filmowego..."
                     view?.evaluateJavascript(scouter.generateDiscoveryScript(), null)
                 }
             }
@@ -78,9 +77,8 @@ class MainActivity : AppCompatActivity() {
             val q = input.text.toString()
             if(q.isNotEmpty()) {
                 progress?.visibility = View.VISIBLE
-                // Zmieniamy na Google, bo DuckDuckGo HTML częściej blokuje boty
-                val query = URLEncoder.encode("$q lektor pl", "UTF-8")
-                engine?.loadUrl("https://www.google.com/search?q=" + query)
+                val query = URLEncoder.encode("$q film online", "UTF-8")
+                webView.loadUrl("https://www.google.com/search?q=" + query)
             }
         }
 
@@ -88,22 +86,29 @@ class MainActivity : AppCompatActivity() {
         setContentView(root)
     }
 
-    private fun updateUI(data: List<Pair<String, Boolean>>, container: LinearLayout) {
+    private fun updateUI(data: List<Pair<String, String>>, container: LinearLayout) {
         progress?.visibility = View.GONE
         if(data.isEmpty()) {
-            monitor?.text = "Brak linków w kodzie strony."
+            monitor?.text = "Nie widzę nic ciekawego na tej stronie."
             return
         }
         
-        monitor?.text = "Znaleziono ${data.size} potencjalnych źródeł"
-        
-        data.toSet().forEach { (url, isVideo) ->
+        // Unikalność linków
+        data.distinctBy { it.first }.forEach { (url, title) ->
             if (!url.contains("google") && !url.contains("gstatic")) {
+                val domain = Uri.parse(url).host?.replace("www.", "")?.uppercase() ?: "INFO"
                 val b = Button(this).apply {
-                    val domain = Uri.parse(url).host?.replace("www.", "")?.uppercase() ?: "LINK"
-                    text = "[$domain] OTWÓRZ"
-                    setTextColor(if(isVideo) Color.CYAN else Color.WHITE)
+                    // Jeśli skaner znalazł tekst (np. "Lektor PL"), wyświetlamy go
+                    val label = if (title.length > 5) title.uppercase() else "SPRAWDŹ ŹRÓDŁO"
+                    text = "[$domain] $label"
+                    
+                    setTextColor(Color.CYAN)
                     setBackgroundColor(Color.parseColor("#1E1E1E"))
+                    
+                    val params = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                    params.setMargins(0, 5, 0, 5)
+                    layoutParams = params
+
                     setOnClickListener { 
                         startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, Uri.parse(url)))
                     }
@@ -111,5 +116,6 @@ class MainActivity : AppCompatActivity() {
                 container.addView(b)
             }
         }
+        monitor?.text = "Znaleziono ${container.childCount} inteligentnych odnośników."
     }
 }
