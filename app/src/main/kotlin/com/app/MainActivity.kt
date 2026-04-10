@@ -71,6 +71,7 @@ class MainActivity : AppCompatActivity() {
         engine = WebView(this).apply {
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
+            addJavascriptInterface(object { @JavascriptInterface fun sendResults(data: String) { updateUI(scouter.parseJson(data), resultsArea) } }, "AndroidInterface")
             
             webViewClient = object : WebViewClient() {
                 // Naprawiony błąd referencji przez jawne wskazywanie MainActivity
